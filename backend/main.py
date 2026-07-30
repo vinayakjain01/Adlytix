@@ -6,7 +6,7 @@ import os, io, math, sys, traceback
 # so a later call would be too late. Real environment variables always win, so
 # this changes nothing in production (App Platform injects them directly) and
 # nothing in the test suites, which set os.environ before importing this module.
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 from fastapi import Depends, FastAPI, UploadFile, File, HTTPException # type: ignore

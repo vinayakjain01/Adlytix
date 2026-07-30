@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start": "next start",
     "clean": "node -e \"const fs=require('fs');for(const d of ['.next','out'])fs.rmSync(d,{recursive:true,force:true});console.log('removed .next and out')\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
