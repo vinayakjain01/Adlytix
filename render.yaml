@@ -1,11 +1,88 @@
+# Render Blueprint — API container, managed Postgres, and the static frontend.
+#
+# Deploy: Render dashboard -> Blueprints -> New Blueprint Instance -> this repo.
+#
+# ── What the previous version of this file got wrong ──────────────────────
+# It declared only the backend and no database. With DATABASE_URL unset the app
+# falls back to localhost, so table creation and admin seeding failed inside the
+# container — while /health kept returning 200, so Render reported a SUCCESSFUL
+# deploy. Nothing worked, and nothing said why.
+#
+# ── Two things that are easy to get wrong, both handled below ─────────────
+# 1. The session cookie. The frontend and the API get different onrender.com
+#    subdomains, so the cookie is cross-site. Browsers only send a cross-site
+#    cookie when it is SameSite=None AND Secure. The production default is Lax,
+#    under which login fails with no error message at all.
+# 2. CORS. The session is a credentialed cookie and browsers reject credentials
+#    against a wildcard, so CORS_ORIGINS must be the exact frontend URL.
+
 services:
+  # ── API (Docker, because the Dockerfile lives in backend/) ──────────────
   - type: web
-    name: roasify-backend
-    runtime: python
+    name: adlytix-api
+    runtime: docker
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    plan: free
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    # Not `free`: free instances sleep when idle, and a cold start in front of a
+    # multi-minute merge is a guaranteed timeout. pandas also wants the RAM.
+    plan: starter
+    healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: adlytix-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      # Generated once and kept across deploys. Rotating it signs everyone out.
+      - key: JWT_SECRET
+        generateValue: true
+      # Cross-site cookie — see note 1 above.
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CORS_ORIGINS
+        fromService:
+          name: adlytix-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: SESSION_HOURS
+        value: "12"
+      - key: REMEMBER_DAYS
+        value: "30"
+      # First administrator, created on startup only when no admin exists yet.
+      # sync:false means Render prompts for these instead of reading them here.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Optional. Unset, AI insights return 503 "not configured" rather than
+      # inventing advice.
+      - key: GOOGLE_API_KEY
+        sync: false
+
+  # ── Frontend (Next.js static export) ───────────────────────────────────
+  - type: web
+    name: adlytix-web
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./out
+    envVars:
+      # NEXT_PUBLIC_* is inlined at BUILD time, so this must be set when the
+      # frontend builds. Changing it later needs a rebuild, not a restart.
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          name: adlytix-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NODE_VERSION
+        value: "20"
+
+databases:
+  - name: adlytix-db
+    region: singapore
+    # The free tier is deleted after 30 days, taking every account with it.
+    plan: basic-256mb
+    postgresMajorVersion: "16"
