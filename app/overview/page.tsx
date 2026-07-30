@@ -2,13 +2,15 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Upload } from 'lucide-react';
+import { ArrowRight, RefreshCw, Sparkles, Upload } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { StatStrip, type StatCardData } from '@/components/ui/stat-card';
 import { SpendRevenueChart } from '@/components/overview/spend-revenue-chart';
 import { QuadrantMix } from '@/components/overview/quadrant-mix';
 import { TopProducts } from '@/components/overview/top-products';
+import { LatestAiRead } from '@/components/overview/latest-ai-read';
 import { useApp } from '@/lib/context';
+import { useAiInsights } from '@/lib/insights-context';
 import { useMonthlySeries, monthOverMonthDelta, type MonthBucket } from '@/hooks/use-monthly-series';
 import { computeKpis } from '@/lib/product-metrics';
 
@@ -27,6 +29,7 @@ const UP_IS_GOOD = new Set(['REVENUE', 'OVERALL ROI']);
 
 export default function OverviewPage() {
   const { mergedData, aggregatedProducts, allMonths, selectedMonths } = useApp();
+  const { status: aiStatus, run: runAi } = useAiInsights();
   const { buckets } = useMonthlySeries();
 
   const hasData = mergedData !== null && aggregatedProducts.length > 0;
@@ -71,13 +74,31 @@ export default function OverviewPage() {
           </div>
 
           {hasData && (
-            <Link
-              href="/sources"
-              className="flex h-[38px] flex-shrink-0 items-center gap-2 rounded-control border border-line bg-field px-4 text-[13px] text-ink-body transition-colors hover:border-line-hover hover:text-ink"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Upload new data
-            </Link>
+            <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5">
+              <Link
+                href="/sources"
+                className="flex h-[38px] items-center gap-2 rounded-control border border-line bg-field px-4 text-[13px] text-ink-body transition-colors hover:border-line-hover hover:text-ink"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload new data
+              </Link>
+
+              {/* Runs the same analysis the AI insights screen shows — the
+                  result is shared, so this never triggers a second call. */}
+              <button
+                type="button"
+                onClick={runAi}
+                disabled={aiStatus === 'thinking'}
+                className="flex h-[38px] items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {aiStatus === 'thinking' ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {aiStatus === 'thinking' ? 'Analysing…' : 'Ask Adlytix AI'}
+              </button>
+            </div>
           )}
         </header>
 
@@ -113,7 +134,10 @@ export default function OverviewPage() {
               <QuadrantMix products={aggregatedProducts} />
             )}
 
-            <TopProducts products={aggregatedProducts} />
+            <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+              <TopProducts products={aggregatedProducts} />
+              <LatestAiRead />
+            </div>
           </div>
         )}
       </div>

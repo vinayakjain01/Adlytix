@@ -11,7 +11,6 @@ import { ChampionsHero } from '@/components/quadrant/champions-hero';
 import { QuadrantGrid } from '@/components/quadrant/quadrant-cards';
 import { ThresholdPanel } from '@/components/quadrant/threshold-panel';
 import { FourCsSlideover } from '@/components/quadrant/four-cs-slideover';
-import { AiInsights } from '@/components/quadrant/ai-insights';
 import { useApp } from '@/lib/context';
 import { bucketByQuadrant, classify, computeThresholds, QUADRANTS } from '@/lib/quadrants';
 import { buildAllQuadrantsExportRows, downloadCsv } from '@/lib/csv-export';
@@ -21,7 +20,7 @@ import { num } from '@/lib/formatters';
 import { useSettledValue } from '@/hooks/use-settled-value';
 
 export default function QuadrantViewPage() {
-  const { mergedData, aggregatedProducts, allMonths, selectedMonths, currency } = useApp();
+  const { mergedData, aggregatedProducts, allMonths, selectedMonths } = useApp();
 
   const [spendPct, setSpendPct] = useState(100);
   const [revPct, setRevPct] = useState(100);
@@ -173,7 +172,8 @@ export default function QuadrantViewPage() {
             I do?", and keeps the chart as supporting evidence rather than the
             opening statement: totals, then the four quadrants and their
             products, then the single recommended action, then the distribution
-            that explains it, then the per-quadrant advice. */}
+            that explains it. The per-quadrant recommendations moved to their own
+            AI insights screen, which is where the design puts them. */}
         <div className="space-y-4">
           <StatStrip cards={kpis} className="2xl:grid-cols-4" />
           <QuadrantGrid buckets={buckets} />
@@ -186,14 +186,6 @@ export default function QuadrantViewPage() {
             products={aggregatedProducts}
             spendThreshold={thresholds.spend}
             revenueThreshold={thresholds.revenue}
-          />
-          <AiInsights
-            buckets={buckets}
-            products={aggregatedProducts}
-            thresholds={thresholds}
-            totals={totals}
-            currency={currency}
-            monthLabel={monthLabel}
           />
         </div>
       </div>

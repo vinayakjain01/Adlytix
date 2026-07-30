@@ -6,6 +6,7 @@ import { ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
 import { BRAND, NAV_GROUPS, navItemsFor } from '@/lib/nav';
 import { useAuth } from '@/lib/auth-context';
 import { initialsOf, roleLabel } from '@/lib/auth';
+import { useAiInsights } from '@/lib/insights-context';
 import { useStoredPreference } from '@/hooks/use-stored-preference';
 import { LogoMark } from './logo-mark';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,9 @@ function parseCollapsed(raw: string | null): boolean | null {
 export function AppSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  // Shown as a badge beside the AI insights link.
+  const { result: aiResult } = useAiInsights();
+  const adviceCount = aiResult?.quadrants.length ?? 0;
   // localStorage is the source of truth, read through useSyncExternalStore so
   // the server render sees the default and the client picks up the saved value
   // after hydration — no mount effect, and no hydration mismatch.
@@ -105,6 +109,21 @@ export function AppSidebar() {
                     >
                       {item.label}
                     </span>
+
+                    {/* Only the insights item carries a count, and only once an
+                        analysis has actually produced cards. */}
+                    {item.href === '/insights' && adviceCount > 0 && (
+                      <span
+                        className={cn(
+                          'flex h-[18px] min-w-[18px] items-center justify-center rounded-full',
+                          'bg-brand-tint-strong px-1 text-[10.5px] font-semibold text-brand-100',
+                          'transition-opacity duration-200',
+                          collapsed && 'opacity-0',
+                        )}
+                      >
+                        {adviceCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

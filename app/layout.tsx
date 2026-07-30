@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { AppProvider } from '@/lib/context'
+import { AiInsightsProvider } from '@/lib/insights-context'
 import { AuthProvider } from '@/lib/auth-context'
 import { BRAND } from '@/lib/nav'
 import { AnalyticsProvider } from '@/components/analytics/analytics-provider'
@@ -58,7 +59,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 signed-in operator attached, and outside the pages so it catches
                 every screen. */}
             <AnalyticsProvider />
-            <ErrorBoundary name="root">{children}</ErrorBoundary>
+            {/* Inside AppProvider: the analysis is built from the merged data,
+                and its result is shared by Overview, the sidebar badge and the
+                insights screen. */}
+            <AiInsightsProvider>
+              <ErrorBoundary name="root">{children}</ErrorBoundary>
+            </AiInsightsProvider>
           </AppProvider>
         </AuthProvider>
       </body>

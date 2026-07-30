@@ -44,9 +44,37 @@ export interface InsightsBrief {
 
 export interface QuadrantAdvice {
   quadrant: QuadrantKey;
-  action: string;
+  /** Imperative heading, e.g. "Scale the Champions". */
+  title: string;
+  /** One sentence on what this quadrant is currently doing. */
+  headline: string;
+  /** Three concrete steps; the API trims anything longer. */
+  actions: string[];
   rationale: string;
   productIds: string[];
+}
+
+/**
+ * Reading order on the insights screen: act first, then protect, then decide.
+ *
+ * Deliberately NOT the canonical quadrant order used elsewhere. The screen
+ * answers "what do I do this week", so the two quadrants that free or earn money
+ * lead, and the two that need a judgement call follow.
+ */
+export const ADVICE_ORDER: QuadrantKey[] = [
+  'champions',
+  'casualties',
+  'contenders',
+  'cruisers',
+];
+
+/** Sorts advice into ADVICE_ORDER, leaving anything unrecognised at the end. */
+export function inAdviceOrder(advice: QuadrantAdvice[]): QuadrantAdvice[] {
+  const rank = (key: QuadrantKey) => {
+    const index = ADVICE_ORDER.indexOf(key);
+    return index === -1 ? ADVICE_ORDER.length : index;
+  };
+  return advice.slice().sort((a, b) => rank(a.quadrant) - rank(b.quadrant));
 }
 
 export interface Insights {

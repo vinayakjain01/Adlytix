@@ -1,5 +1,5 @@
 import {
-  LayoutGrid, Upload, Table2, Grid2X2, Percent, Users,
+  LayoutGrid, Upload, Table2, Grid2X2, Percent, Users, Sparkles, Settings,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,7 +33,6 @@ export const NAV_GROUPS: { id: NavGroupId; label: string }[] = [
 /**
  * Only routes that actually exist are listed — a sidebar link that 404s is
  * worse than a sidebar that grows. Each migration phase appends its entry:
- *   P12 → /insights
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: LayoutGrid, group: 'workspace' },
@@ -41,6 +40,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/product-analysis', label: 'Product analysis', icon: Table2, group: 'workspace' },
   { href: '/quadrant-view', label: '4C quadrant', icon: Grid2X2, group: 'workspace' },
   { href: '/discount-analysis', label: 'Discounts', icon: Percent, group: 'workspace' },
+  { href: '/insights', label: 'AI insights', icon: Sparkles, group: 'workspace' },
+  { href: '/settings', label: 'Settings', icon: Settings, group: 'admin' },
   { href: '/users', label: 'Users & access', icon: Users, group: 'admin', adminOnly: true },
 ];
 

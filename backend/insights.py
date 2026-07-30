@@ -48,8 +48,17 @@ _cache: dict[str, tuple[float, dict]] = {}
 
 QUADRANT_KEYS = ("champions", "contenders", "cruisers", "casualties")
 
-# What each quadrant means, so the model reasons inside this product's
-# framework instead of inventing its own reading of the four names.
+# Fallback headings, used only when the model omits a title, so a card is never
+# rendered headless. Mirrors the wording the interface expects.
+QUADRANT_TITLES = {
+    "champions": "Scale the Champions",
+    "contenders": "Protect the Contenders",
+    "cruisers": "Decide on the Cruisers",
+    "casualties": "Cut the Casualties",
+}
+
+# What each quadrant means, so the model reasons inside this product's framework
+# instead of inventing its own reading of the four names.
 QUADRANT_MEANING = {
     "champions": "high revenue on low spend — the best scaling candidates",
     "contenders": "high revenue on high spend — carry the revenue base at real cost",
@@ -106,7 +115,12 @@ class InsightsRequest(BaseModel):
 
 class QuadrantAdvice(BaseModel):
     quadrant: str
-    action: str
+    # Imperative heading for the card, e.g. "Scale the Champions".
+    title: str
+    # One sentence on what this quadrant is currently doing.
+    headline: str
+    # Three concrete steps. Trimmed to three even if the model returns more.
+    actions: list[str] = Field(default_factory=list)
     rationale: str
     productIds: list[str] = Field(default_factory=list)
 
@@ -143,9 +157,13 @@ break-even", "far below the others").
 2. Refer to specific products only by their exact product ID, taken verbatim \
 from the data given to you. Never invent an ID. Never guess an ID you were not \
 given.
-3. Give one concrete action per quadrant — something the operator does this \
-week, not a principle. Prefer "pause these two and move the budget to the \
-champions" over "optimise underperformers".
+3. For every quadrant that has products, give:
+   - "title": an imperative heading of two to five words, e.g. "Scale the \
+Champions", "Cut the Casualties now".
+   - "headline": one sentence on what that quadrant is currently doing.
+   - "actions": EXACTLY THREE concrete steps the operator takes this week, not \
+principles. Prefer "pause these two and move the budget to the champions" over \
+"optimise underperformers". Each action must stand alone as an instruction.
 4. Be direct and specific. No preamble, no restating the question, no hedging \
 about needing more data.
 5. If a quadrant is empty, say plainly that it has no products and give no \
@@ -160,16 +178,31 @@ RESPONSE_SCHEMA = {
     "properties": {
         "headline": {
             "type": "string",
-            "description": "One sentence naming the single most important thing to do. No numbers.",
+            "description": (
+                "Executive summary: two or three sentences on the shape of the catalogue "
+                "and the single highest-value action. No numbers."
+            ),
         },
         "quadrants": {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["quadrant", "action", "rationale", "productIds"],
+                "required": ["quadrant", "title", "headline", "actions", "rationale", "productIds"],
                 "properties": {
                     "quadrant": {"type": "string", "enum": list(QUADRANT_KEYS)},
-                    "action": {"type": "string", "description": "One concrete action. No numbers."},
+                    "title": {
+                        "type": "string",
+                        "description": "Imperative heading, 2-5 words, e.g. 'Scale the Champions'. No numbers.",
+                    },
+                    "headline": {
+                        "type": "string",
+                        "description": "One sentence on what this quadrant is doing. No numbers.",
+                    },
+                    "actions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Exactly three concrete actions for this week. No numbers.",
+                    },
                     "rationale": {"type": "string", "description": "Why, in one or two sentences. No numbers."},
                     "productIds": {
                         "type": "array",
@@ -219,8 +252,9 @@ def build_prompt(body: InsightsRequest) -> str:
         f"Analyse this 4C breakdown. All amounts are in {body.currency}. "
         f"Period: {scope}.\n\n"
         f"{json.dumps(payload, separators=(',', ':'))}\n\n"
-        "Return one entry per quadrant that has products. Remember: no numbers "
-        "in your text, and only product IDs that appear above."
+        "Return one entry per quadrant that has products, each with a title, a "
+        "headline and exactly three actions. Remember: no numbers in your text, "
+        "and only product IDs that appear above."
     )
 
 
@@ -256,10 +290,16 @@ def ground_response(raw: dict, body: InsightsRequest) -> tuple[list[QuadrantAdvi
         kept = [i for i in ids if i in allowed]
         dropped += len(ids) - len(kept)
 
+        # Three actions is what the interface lays out; more would overflow the
+        # card and fewer reads as an incomplete answer.
+        actions = [str(a).strip() for a in (entry.get("actions") or []) if str(a).strip()][:3]
+
         advice.append(
             QuadrantAdvice(
                 quadrant=key,
-                action=str(entry.get("action", "")).strip(),
+                title=str(entry.get("title", "")).strip() or QUADRANT_TITLES[key],
+                headline=str(entry.get("headline", "")).strip(),
+                actions=actions,
                 rationale=str(entry.get("rationale", "")).strip(),
                 # Deduplicated while preserving the model's ordering.
                 productIds=list(dict.fromkeys(kept)),
