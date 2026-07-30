@@ -1,91 +1,142 @@
 'use client';
 
-import { DashboardLayout } from '@/components/layout/dashboard-layout';
-import { KpiStrip } from '@/components/ui/kpi-card';
-import { DiscountHero } from '@/components/discount-analysis/discount-hero';
-import { ComparisonCard } from '@/components/discount-analysis/comparison-card';
-import { NarrativeCard } from '@/components/discount-analysis/narrative-card';
-import { DiscountTable } from '@/components/discount-analysis/discount-table';
-import { DiscountPanel } from '@/components/discount-analysis/right-panel';
-import { useApp } from '@/lib/context';
-import type { Product } from '@/lib/context';
+import { useMemo } from 'react';
 import Link from 'next/link';
-
-function getSpend(p: Product): number   { return p['Total Spend']    ?? (p as any).totalSpend ?? 0; }
-function getRevenue(p: Product): number { return p['Shopify Revenue'] ?? (p as any).revenue    ?? 0; }
-function getItemsSold(p: Product): number { return p['Net Items Sold'] ?? (p as any).itemsSold ?? 0; }
-function getCtr(p: Product): number     { return p['CTR'] ?? (p as any).ctr ?? 0; }
-function getCpm(p: Product): number     { return p['CPM'] ?? (p as any).cpm ?? 0; }
-function isDiscounted(p: Product): boolean { return !!(p as any).discounted; }
-
-function computeStats(products: Product[]) {
-  if (products.length === 0) return { count: 0, spend: 0, revenue: 0, roi: 0, items: 0, avgCtr: 0, avgCpm: 0 };
-  const spend   = products.reduce((s, p) => s + getSpend(p), 0);
-  const revenue = products.reduce((s, p) => s + getRevenue(p), 0);
-  return {
-    count:   products.length,
-    spend,
-    revenue,
-    roi:     spend > 0 ? revenue / spend : 0,
-    items:   products.reduce((s, p) => s + getItemsSold(p), 0),
-    avgCtr:  products.reduce((s, p) => s + getCtr(p), 0) / products.length,
-    avgCpm:  products.reduce((s, p) => s + getCpm(p), 0) / products.length,
-  };
-}
+import { ArrowRight, Percent, Upload } from 'lucide-react';
+import { AppShell } from '@/components/layout/app-shell';
+import { StatStrip } from '@/components/ui/stat-card';
+import { CohortComparison } from '@/components/discounts/cohort-comparison';
+import { DiscountNarrative } from '@/components/discounts/discount-narrative';
+import { DiscountTable } from '@/components/discounts/discount-table';
+import { useApp } from '@/lib/context';
+import { splitByDiscount } from '@/lib/discount-metrics';
+import { inr, num } from '@/lib/formatters';
 
 export default function DiscountAnalysisPage() {
-  const { mergedData } = useApp();
+  // aggregatedProducts rather than the raw rows, so the split follows the
+  // header's month selection like every other screen. The original read
+  // mergedData directly and therefore ignored the month picker.
+  const { mergedData, aggregatedProducts, allMonths, selectedMonths, discountFile } = useApp();
 
-  const products   = mergedData ?? [];
-  const discounted    = products.filter(isDiscounted);
-  const nonDiscounted = products.filter(p => !isDiscounted(p));
+  const hasData = mergedData !== null && aggregatedProducts.length > 0;
+  const split = useMemo(() => splitByDiscount(aggregatedProducts), [aggregatedProducts]);
 
-  const dStats  = computeStats(discounted);
-  const ndStats = computeStats(nonDiscounted);
+  const hasDiscountList = split.d.count > 0;
 
-  const kpiCards = [
-    { label: 'DISCOUNTED',     value: dStats.count,  format: 'number' as const, showSparkline: false },
-    { label: 'NON-DISCOUNTED', value: ndStats.count, format: 'number' as const, showSparkline: false },
-    { label: 'DISCOUNTED ROI', value: dStats.roi,    format: 'roi'    as const, showSparkline: false },
-    { label: 'NON-DISC. ROI',  value: ndStats.roi,   format: 'roi'    as const, showSparkline: false },
-  ];
+  const kpis = useMemo(
+    () => [
+      { label: 'DISCOUNTED', value: split.d.count, format: 'number' as const },
+      { label: 'FULL PRICE', value: split.nd.count, format: 'number' as const },
+      { label: 'DISCOUNTED ROI', value: split.d.roi, format: 'roi' as const },
+      { label: 'FULL-PRICE ROI', value: split.nd.roi, format: 'roi' as const },
+    ],
+    [split],
+  );
 
-  const breadcrumbs = [
-    { label: 'Workspace' },
-    { label: 'Discount Analysis' },
-    { label: 'Overview' },
-  ];
+  const monthLabel =
+    allMonths.length > 0
+      ? selectedMonths.size === allMonths.length
+        ? `all ${allMonths.length} ${allMonths.length === 1 ? 'month' : 'months'}`
+        : `${selectedMonths.size} of ${allMonths.length} months`
+      : null;
+
+  const header = (
+    <header className="mb-7">
+      <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">
+        Discount vs full price
+      </h1>
+      <p className="text-[14px] text-ink-secondary">
+        Compare discounted and full-price products to see whether the discount pays for itself
+        {monthLabel && hasData ? ` · ${monthLabel}` : ''}.
+      </p>
+    </header>
+  );
+
+  if (!hasData) {
+    return (
+      <AppShell>
+        <div className="animate-fade-up">
+          {header}
+          <div className="rounded-card border border-line bg-panel px-6 py-16 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-panel border border-line bg-panel-sunken text-ink-faint animate-floaty">
+              <Upload className="h-5 w-5" />
+            </div>
+            <p className="mb-1.5 text-[17px] font-medium">No merged data yet</p>
+            <p className="mx-auto mb-6 max-w-md text-[13.5px] leading-relaxed text-ink-tertiary">
+              Upload your exports and run a merge first. Add the optional discount list to split
+              products into discounted and full-price cohorts.
+            </p>
+            <Link
+              href="/sources"
+              className="inline-flex h-9 items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-transform hover:-translate-y-px"
+            >
+              Go to data sources
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
-    <DashboardLayout
-      breadcrumbs={breadcrumbs}
-      rightPanel={<DiscountPanel />}
-      rightPanelTitle="Insights"
-    >
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#1A1814] mb-1">Discount vs Non-Discount</h1>
-        <p className="text-sm text-[#57544E]">
-          Compare the performance of discounted and non-discounted products to optimize your pricing strategy.
-        </p>
-      </div>
+    <AppShell>
+      <div className="animate-fade-up">
+        {header}
 
-      {!mergedData ? (
-        <div className="py-20 text-center text-[#8B8780]">
-          <p className="text-lg font-medium mb-2">No data loaded</p>
-          <p className="text-sm mb-4">Run Product Analysis first to see discount insights.</p>
-          <Link href="/product-analysis" className="text-[#4F46E5] hover:text-[#4338CA] text-sm">
-            Go to Product Analysis →
-          </Link>
-        </div>
-      ) : (
-        <>
-          <KpiStrip cards={kpiCards} className="mb-6" />
-          <div className="mb-5"><DiscountHero discountedStats={dStats} nonDiscountedStats={ndStats} /></div>
-          <div className="mb-5"><ComparisonCard discountedStats={dStats} nonDiscountedStats={ndStats} /></div>
-          <div className="mb-5"><NarrativeCard discountedStats={dStats} nonDiscountedStats={ndStats} /></div>
-          <DiscountTable products={products} />
-        </>
-      )}
-    </DashboardLayout>
+        {!hasDiscountList ? (
+          /* Merged data exists, but nothing is tagged as discounted. */
+          <div className="rounded-card border border-warn/25 bg-warn-tint px-6 py-12 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-panel border border-warn/25 bg-panel-sunken text-warn">
+              <Percent className="h-5 w-5" />
+            </div>
+            <p className="mb-1.5 text-[17px] font-medium">
+              {discountFile ? 'No products matched the discount list' : 'No discount list uploaded'}
+            </p>
+            <p className="mx-auto mb-6 max-w-lg text-[13.5px] leading-relaxed text-ink-secondary">
+              {discountFile ? (
+                <>
+                  <span className="font-mono text-ink">{discountFile.name}</span> was uploaded, but
+                  none of its product IDs matched the {num(aggregatedProducts.length)} merged
+                  products. Check that the file has a <span className="text-ink">Product ID</span>{' '}
+                  column holding the same IDs as your Shopify export.
+                </>
+              ) : (
+                <>
+                  This screen splits your catalogue into discounted and full-price cohorts. Add the
+                  optional discount list — a single <span className="text-ink">Product ID</span>{' '}
+                  column, one row per discounted product — on the Data sources screen, then re-run
+                  the merge.
+                </>
+              )}
+            </p>
+            <Link
+              href="/sources"
+              className="inline-flex h-9 items-center gap-2 rounded-control border border-warn/30 px-4 text-[13px] text-warn transition-colors hover:bg-warn-tint"
+            >
+              {discountFile ? 'Replace the discount list' : 'Add a discount list'}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <StatStrip cards={kpis} className="2xl:grid-cols-4" />
+
+            <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr]">
+              <CohortComparison split={split} />
+              <DiscountNarrative split={split} />
+            </div>
+
+            <DiscountTable products={aggregatedProducts} />
+
+            <p className="px-1 text-[12px] leading-relaxed text-ink-muted">
+              Discounted spend in this selection is {inr(split.d.spend, true)} against{' '}
+              {inr(split.nd.spend, true)} at full price. Averages here are per-product means, so
+              CTR and CPM are not spend-weighted the way they are on the product table.
+            </p>
+          </div>
+        )}
+      </div>
+    </AppShell>
   );
 }

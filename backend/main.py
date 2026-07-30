@@ -1,16 +1,44 @@
 # backend/main.py
-import os, io, math, traceback
-from fastapi import FastAPI, UploadFile, File, HTTPException # type: ignore
+import os, io, math, sys, traceback
+
+# Loads backend/.env before anything reads the environment. This has to happen
+# above the local imports below: security.py resolves JWT_SECRET at import time,
+# so a later call would be too late. Real environment variables always win, so
+# this changes nothing in production (App Platform injects them directly) and
+# nothing in the test suites, which set os.environ before importing this module.
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+from fastapi import Depends, FastAPI, UploadFile, File, HTTPException # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 import pandas as pd
 from data_cleaner import clean_meta, clean_shopify, clean_google
-from analytics import run_overall_view, run_product_analysis, run_discount_analysis
+from analytics import run_overall_view, run_product_analysis, run_discount_analysis, clean_pid
+from auth import current_user, init_auth, router as auth_router
+from insights import router as insights_router
+from currency import DEFAULT_BASE, RateUnavailable, SUPPORTED, get_rates, normalise_sources
+from models import User
 
 app = FastAPI(title="ROASify API")
 
 # ── CORS ──────────────────────────────────────────────────────────────
-_raw_origins = os.getenv("CORS_ORIGINS", "*")
-ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",")] if _raw_origins != "*" else ["*"]
+# The session lives in an httpOnly cookie, so requests are credentialed — and
+# the CORS spec forbids credentials against a wildcard origin (browsers reject
+# the response outright). Origins must therefore be listed explicitly. The
+# previous "*" default silently produced exactly that invalid combination.
+_DEV_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+_raw_origins = os.getenv("CORS_ORIGINS", "").strip()
+
+if _raw_origins and _raw_origins != "*":
+    ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+else:
+    ALLOWED_ORIGINS = _DEV_ORIGINS
+    if _raw_origins == "*":
+        print(
+            "[cors] CORS_ORIGINS='*' cannot be used with cookie auth — falling "
+            f"back to {_DEV_ORIGINS}. Set CORS_ORIGINS to your frontend URL.",
+            file=sys.stderr,
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,6 +47,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
+app.include_router(insights_router)
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    """Creates the auth tables and seeds the first administrator."""
+    try:
+        init_auth()
+    except Exception as exc:  # pragma: no cover - surfaced in logs
+        # A database that is not reachable must not stop the service from
+        # booting; /health stays up and every protected route returns 401.
+        print(f"[auth] Initialisation failed: {exc}", file=sys.stderr)
 
 
 def _safe(v):
@@ -42,6 +84,17 @@ async def analyse(
     discount_file: UploadFile = File(None),
     spend_pct_thresh: float = 100,
     rev_pct_thresh:   float = 100,
+    # ── Currency ─────────────────────────────────────────────────────
+    # The currency every figure is normalised into, and what each upload is
+    # denominated in. Sources default to the base, so omitting all four leaves
+    # behaviour identical to before.
+    base_currency:     str = DEFAULT_BASE,
+    meta_currency:     str = "",
+    shopify_currency:  str = "",
+    google_currency:   str = "",
+    # Requires a valid session, and re-checks suspension and subscription
+    # expiry against the database on every call.
+    _user: User = Depends(current_user),
 ):
     # ── Read uploads ──────────────────────────────────────────────────
     meta_bytes    = await meta_file.read()
@@ -93,12 +146,63 @@ async def analyse(
         except Exception as e:
             discount_warns = [f"Discount file skipped: {e}"]
 
+    # ── Normalise every source into one base currency ────────────────
+    # Runs BEFORE any aggregation, because Total Spend and ROI add and divide
+    # across sources — mixing currencies there produces numbers that look
+    # plausible and are wrong. See currency.py for the worked example.
+    # Sources default to the base currency, so omitting these parameters
+    # reproduces the previous behaviour exactly.
+    try:
+        converted, currency_audit = normalise_sources(
+            {"meta": meta_df, "shopify": shopify_df, "google": google_df},
+            {
+                "meta": meta_currency,
+                "shopify": shopify_currency,
+                "google": google_currency,
+            },
+            base_currency,
+        )
+        meta_df, shopify_df, google_df = (
+            converted["meta"], converted["shopify"], converted["google"],
+        )
+    except RateUnavailable as e:
+        # Refuse rather than fall back to parity, which is the very bug this
+        # step exists to prevent.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Currency conversion is required but unavailable: {e} "
+                "Set every source to the same currency as the base to continue "
+                "without conversion."
+            ),
+        )
+
+    if currency_audit.get("stale"):
+        google_warns = list(google_warns) + [
+            "Exchange rates could not be refreshed — a cached rate was used."
+        ]
+
     # ── Run Overall View ─────────────────────────────────────────────
     try:
         merged_df, has_month = run_overall_view(meta_df, shopify_df, google_df)
     except Exception as e:
         tb = traceback.format_exc()
         raise HTTPException(status_code=500, detail=f"Merge error: {e}\n\n{tb}")
+
+    # ── Tag merged rows with discount membership ─────────────────────
+    # The discount list was already being parsed and handed to
+    # run_discount_analysis, but the per-product rows returned to the client
+    # carried no flag — so the Discount screen always saw every product as
+    # non-discounted. Uses the same clean_pid normalisation as the discount
+    # engine so the two agree. Always present, so the response shape is stable.
+    disc_ids = set()
+    if discount_df is not None and "Product ID" in discount_df.columns:
+        disc_ids = {clean_pid(v) for v in discount_df["Product ID"].dropna()}
+
+    merged_df["Discounted"] = (
+        merged_df["Product ID"].apply(clean_pid).isin(disc_ids) if disc_ids
+        else False
+    )
 
     # ── Run Product Analysis ─────────────────────────────────────────
     try:
@@ -143,6 +247,14 @@ async def analyse(
         "ok":           True,
         "hasMonth":     has_month,
         "hasGoogle":    google_df is not None,
+        # Lets the client tell "no discount list uploaded" apart from
+        # "uploaded, but nothing matched".
+        "hasDiscount":  discount_df is not None,
+        "discountedProducts": int(len(disc_ids)),
+        # What every figure below is denominated in, which rate was applied to
+        # each source, and where it came from — so a run can be audited rather
+        # than the numbers just changing.
+        "currency":     currency_audit,
         "products":     df_to_records(merged_df),
         "kpis":         kpis,
         "quadrants": {
@@ -163,6 +275,38 @@ async def analyse(
             "meta_spend":  kpis["totalMetaSpend"],
             "google_cost": kpis["totalGoogleCost"],
         },
+    }
+
+
+@app.get("/api/rates")
+def rates(
+    base: str = DEFAULT_BASE,
+    refresh: bool = False,
+    _user: User = Depends(current_user),
+):
+    """
+    Live exchange rates, quoted the way they are read: "1 USD = 95.86 INR".
+    Used for the display-currency switch and shown on the Settings screen.
+    """
+    base = base.upper()
+    if base not in SUPPORTED:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{base} is not supported. Choose one of: {', '.join(SUPPORTED)}.",
+        )
+
+    try:
+        raw, fetched_at, provider = get_rates(base, force=refresh)
+    except RateUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    return {
+        "base": base,
+        # raw[X] means "1 base = X of currency X"; invert for readability.
+        "rates": {code: (1.0 / value) for code, value in raw.items() if value > 0},
+        "fetchedAt": fetched_at,
+        "provider": provider,
+        "supported": list(SUPPORTED),
     }
 
 

@@ -1,178 +1,204 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { DashboardLayout } from '@/components/layout/dashboard-layout';
-import { KpiStrip } from '@/components/ui/kpi-card';
-import { ChampionsHero } from '@/components/quadrant-view/champions-hero';
-import { QuadrantGrid } from '@/components/quadrant-view/quadrant-cards';
-import { AIAnalysis } from '@/components/quadrant-view/ai-analysis';
-import { FourCsSlideover } from '@/components/quadrant-view/four-cs-slideover';
-import { QuadrantPanel } from '@/components/quadrant-view/right-panel';
+import { toast } from 'sonner';
+import { ArrowRight, Upload } from 'lucide-react';
+import { AppShell } from '@/components/layout/app-shell';
+import { StatStrip } from '@/components/ui/stat-card';
+import { QuadrantScatter } from '@/components/quadrant/quadrant-scatter';
+import { ChampionsHero } from '@/components/quadrant/champions-hero';
+import { QuadrantGrid } from '@/components/quadrant/quadrant-cards';
+import { ThresholdPanel } from '@/components/quadrant/threshold-panel';
+import { FourCsSlideover } from '@/components/quadrant/four-cs-slideover';
+import { AiInsights } from '@/components/quadrant/ai-insights';
 import { useApp } from '@/lib/context';
-import type { NormProduct } from '@/lib/context';
-import { Download } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { inr, roi } from '@/lib/formatters';
-
-function downloadAllQuadrantsCSV(products: NormProduct[], spendT: number, revT: number, months: string) {
-  function classify(p: NormProduct) {
-    const hr = p.revenue    >= revT;
-    const hs = p.totalSpend >= spendT;
-    if  (hr && !hs) return 'Champions';
-    if  (hr &&  hs) return 'Contenders';
-    if (!hr && !hs) return 'Cruisers';
-    return 'Casualties';
-  }
-  const rows: string[][] = [
-    ['ROASify — Quadrant View Export'],
-    ['Generated',          new Date().toLocaleString('en-IN')],
-    ['Months',             months],
-    ['Spend Threshold',    String(Math.round(spendT))],
-    ['Revenue Threshold',  String(Math.round(revT))],
-    [],
-    ['Product ID', 'Product Title', 'Variant', 'Quadrant', 'Meta Spend', 'Total Spend', 'Revenue', 'ROI', 'Items Sold'],
-    ...products.map(p => [
-      p.id, p.title, p.variant,
-      classify(p),
-      String(Math.round(p.metaSpend)),
-      String(Math.round(p.totalSpend)),
-      String(Math.round(p.revenue)),
-      p.roi.toFixed(2),
-      String(p.itemsSold),
-    ]),
-  ];
-  const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `roasify_quadrant_${Date.now()}.csv`; a.click();
-  URL.revokeObjectURL(url);
-}
+import { bucketByQuadrant, classify, computeThresholds, QUADRANTS } from '@/lib/quadrants';
+import { buildAllQuadrantsExportRows, downloadCsv } from '@/lib/csv-export';
+import { track } from '@/lib/analytics/client';
+import { computeTotals } from '@/lib/product-metrics';
+import { num } from '@/lib/formatters';
+import { useSettledValue } from '@/hooks/use-settled-value';
 
 export default function QuadrantViewPage() {
-  const { mergedData, aggregatedProducts, allMonths, selectedMonths } = useApp();
-  const [slideoverOpen, setSlideoverOpen] = useState(false);
+  const { mergedData, aggregatedProducts, allMonths, selectedMonths, currency } = useApp();
+
   const [spendPct, setSpendPct] = useState(100);
-  const [revPct,   setRevPct]   = useState(100);
+  const [revPct, setRevPct] = useState(100);
+  const [helpOpen, setHelpOpen] = useState(false);
 
-  // Use aggregatedProducts — month-filtered + grouped by product ID
-  const products = aggregatedProducts;
+  const hasData = mergedData !== null && aggregatedProducts.length > 0;
 
-  const avgSpend   = useMemo(() =>
-    products.length > 0 ? products.reduce((s, p) => s + p.totalSpend, 0) / products.length : 0,
-    [products]
-  );
-  const avgRevenue = useMemo(() =>
-    products.length > 0 ? products.reduce((s, p) => s + p.revenue,    0) / products.length : 0,
-    [products]
+  // Thresholds are the MEAN of the products currently in view, scaled by the
+  // sliders — so they move with the month selection as well as the sliders.
+  const thresholds = useMemo(
+    () => computeThresholds(aggregatedProducts, spendPct, revPct),
+    [aggregatedProducts, spendPct, revPct],
   );
 
-  const spendThreshold   = useMemo(() => avgSpend   * (spendPct / 100), [avgSpend,   spendPct]);
-  const revenueThreshold = useMemo(() => avgRevenue * (revPct   / 100), [avgRevenue, revPct]);
+  const buckets = useMemo(
+    () => bucketByQuadrant(aggregatedProducts, thresholds.spend, thresholds.revenue),
+    [aggregatedProducts, thresholds.spend, thresholds.revenue],
+  );
 
-  const totalSpend   = products.reduce((s, p) => s + p.totalSpend, 0);
-  const totalRevenue = products.reduce((s, p) => s + p.revenue,    0);
-  const overallRoi   = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const totals = useMemo(() => computeTotals(aggregatedProducts), [aggregatedProducts]);
 
-  const kpiCards = [
-    { label: 'TOTAL PRODUCTS', value: products.length,  format: 'number'   as const, showSparkline: false },
-    { label: 'TOTAL SPEND',    value: totalSpend,        format: 'currency' as const, showSparkline: false },
-    { label: 'TOTAL REVENUE',  value: totalRevenue,      format: 'currency' as const, showSparkline: false },
-    { label: 'OVERALL ROI',    value: overallRoi,        format: 'roi'      as const, showSparkline: false },
-  ];
-
-  const monthLabel = allMonths.length > 0
-    ? (selectedMonths.size === allMonths.length
+  const monthLabel =
+    allMonths.length > 0
+      ? selectedMonths.size === allMonths.length
         ? `All ${allMonths.length} months`
-        : `${selectedMonths.size} of ${allMonths.length} months`)
-    : 'All data';
+        : `${selectedMonths.size} of ${allMonths.length} months`
+      : null;
 
-  const breadcrumbs = [
-    { label: 'Workspace' },
-    { label: 'Quadrant View' },
-    { label: '4C Framework' },
-  ];
-
-  const panel = (
-    <QuadrantPanel
-      spendThreshold={spendThreshold}
-      revenueThreshold={revenueThreshold}
-      spendPct={spendPct}
-      revPct={revPct}
-      avgSpend={avgSpend}
-      avgRevenue={avgRevenue}
-      onSpendPctChange={setSpendPct}
-      onRevPctChange={setRevPct}
-      onReset={() => { setSpendPct(100); setRevPct(100); }}
-    />
+  const kpis = useMemo(
+    () => [
+      { label: 'TOTAL PRODUCTS', value: totals.count, format: 'number' as const },
+      { label: 'TOTAL SPEND', value: totals.totalSpend, format: 'currency' as const },
+      { label: 'TOTAL REVENUE', value: totals.revenue, format: 'currency' as const },
+      { label: 'OVERALL ROI', value: totals.roi, format: 'roi' as const },
+    ],
+    [totals],
   );
+
+  // Sliders emit continuously while dragged; only the resting value is a
+  // deliberate choice worth recording. The tracked value is a primitive, not an
+  // object: a fresh object identity each render would restart the timer on
+  // unrelated re-renders and then report a change that never happened.
+  useSettledValue(`${spendPct}:${revPct}`, (pair) => {
+    const [spend, revenue] = pair.split(':').map(Number);
+    track('quadrant_thresholds_changed', { spend_pct: spend, revenue_pct: revenue });
+  }, 500);
+
+  const exportAll = useCallback(() => {
+    if (aggregatedProducts.length === 0) return;
+    downloadCsv(
+      `roasify_quadrant_${Date.now()}.csv`,
+      buildAllQuadrantsExportRows(
+        aggregatedProducts,
+        (product) => QUADRANTS[classify(product, thresholds.spend, thresholds.revenue)].label,
+        thresholds.spend,
+        thresholds.revenue,
+        monthLabel ?? 'All data',
+      ),
+    );
+    track('csv_downloaded', {
+      kind: 'all-quadrants',
+      row_count: aggregatedProducts.length,
+      was_filtered: false,
+      filter_count: 0,
+      filename_length: null,
+    });
+    toast.success(`Exported ${num(aggregatedProducts.length)} products with quadrants`);
+  }, [aggregatedProducts, thresholds.spend, thresholds.revenue, monthLabel]);
+
+  if (!hasData) {
+    return (
+      <AppShell>
+        <div className="animate-fade-up">
+          <header className="mb-7">
+            <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">4C quadrant</h1>
+            <p className="text-[14px] text-ink-secondary">
+              Classify products into Champions, Contenders, Cruisers and Casualties by spend
+              against revenue.
+            </p>
+          </header>
+
+          <div className="rounded-card border border-line bg-panel px-6 py-16 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-panel border border-line bg-panel-sunken text-ink-faint animate-floaty">
+              <Upload className="h-5 w-5" />
+            </div>
+            <p className="mb-1.5 text-[17px] font-medium">No merged data yet</p>
+            <p className="mx-auto mb-6 max-w-md text-[13.5px] leading-relaxed text-ink-tertiary">
+              Upload your exports and run a merge first — the quadrants are derived from that
+              result.
+            </p>
+            <Link
+              href="/sources"
+              className="inline-flex h-9 items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-transform hover:-translate-y-px"
+            >
+              Go to data sources
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
-    <DashboardLayout breadcrumbs={breadcrumbs} rightPanel={panel} rightPanelTitle="Thresholds & Stats">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#1A1814] mb-1">Quadrant View — 4C Framework</h1>
-          <p className="text-sm text-[#57544E]">
-            Classify products into Champions, Contenders, Cruisers, Casualties based on spend and revenue.
-          </p>
+    <AppShell
+      onExport={exportAll}
+      exportLabel="Export all"
+      rightPanel={
+        <ThresholdPanel
+          thresholds={thresholds}
+          spendPct={spendPct}
+          revPct={revPct}
+          buckets={buckets}
+          monthLabel={monthLabel}
+          onSpendPctChange={setSpendPct}
+          onRevPctChange={setRevPct}
+          onReset={() => {
+            setSpendPct(100);
+            setRevPct(100);
+          }}
+        />
+      }
+    >
+      <div className="animate-fade-up">
+        <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">4C quadrant</h1>
+            <p className="text-[14px] text-ink-secondary">
+              Classify products into Champions, Contenders, Cruisers and Casualties by spend
+              against revenue.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              track('quadrant_explainer_opened', {
+                populated_quadrants: Object.values(buckets).filter((b) => b.count > 0).length,
+              });
+              setHelpOpen(true);
+            }}
+            className="flex h-[38px] flex-shrink-0 items-center gap-1.5 rounded-control border border-line bg-field px-4 text-[13px] text-ink-body transition-colors hover:border-line-hover hover:text-ink"
+          >
+            How the 4Cs work
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </header>
+
+        {/* Ordered so the screen answers "what have I got?" before "what should
+            I do?", and keeps the chart as supporting evidence rather than the
+            opening statement: totals, then the four quadrants and their
+            products, then the single recommended action, then the distribution
+            that explains it, then the per-quadrant advice. */}
+        <div className="space-y-4">
+          <StatStrip cards={kpis} className="2xl:grid-cols-4" />
+          <QuadrantGrid buckets={buckets} />
+          <ChampionsHero
+            products={aggregatedProducts}
+            spendThreshold={thresholds.spend}
+            revenueThreshold={thresholds.revenue}
+          />
+          <QuadrantScatter
+            products={aggregatedProducts}
+            spendThreshold={thresholds.spend}
+            revenueThreshold={thresholds.revenue}
+          />
+          <AiInsights
+            buckets={buckets}
+            products={aggregatedProducts}
+            thresholds={thresholds}
+            totals={totals}
+            currency={currency}
+            monthLabel={monthLabel}
+          />
         </div>
-        <button
-          onClick={() => setSlideoverOpen(true)}
-          className="text-sm text-[#4F46E5] hover:text-[#4338CA] flex items-center gap-1 flex-shrink-0 mt-1"
-        >
-          How the 4Cs work →
-        </button>
       </div>
 
-      {/* Source Banner */}
-      <div className="mb-5 bg-[#F2F0EA] rounded-xl px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${mergedData ? 'bg-[#10B981]' : 'bg-[#F59E0B]'}`} />
-          <span className="text-sm text-[#1A1814]">
-            {mergedData
-              ? <><span className="font-semibold">{products.length} products</span> · {monthLabel} · thresholds {inr(spendThreshold)} spend / {inr(revenueThreshold)} rev</>
-              : 'No merged data yet — run Product Analysis first'}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          {mergedData && (
-            <Button
-              variant="outline" size="sm"
-              className="h-8 px-3 border-[#DEDBD2] text-[#57544E]"
-              onClick={() => downloadAllQuadrantsCSV(products, spendThreshold, revenueThreshold, monthLabel)}
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Download all
-            </Button>
-          )}
-          <Link href="/product-analysis" className="text-sm text-[#4F46E5] hover:text-[#4338CA]">
-            {mergedData ? 'View source dataset →' : 'Go to Product Analysis →'}
-          </Link>
-        </div>
-      </div>
-
-      {!mergedData && (
-        <div className="py-20 text-center text-[#8B8780]">
-          <p className="text-lg font-medium mb-2">No data loaded</p>
-          <p className="text-sm">Upload your files and run Product Analysis first.</p>
-        </div>
-      )}
-
-      {mergedData && (
-        <>
-          <KpiStrip cards={kpiCards} className="mb-6" />
-          <div className="mb-5">
-            <ChampionsHero spendThreshold={spendThreshold} revenueThreshold={revenueThreshold} />
-          </div>
-          <div className="mb-5">
-            <QuadrantGrid spendThreshold={spendThreshold} revenueThreshold={revenueThreshold} />
-          </div>
-          <AIAnalysis />
-        </>
-      )}
-
-      <FourCsSlideover isOpen={slideoverOpen} onClose={() => setSlideoverOpen(false)} />
-    </DashboardLayout>
+      <FourCsSlideover open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </AppShell>
   );
 }

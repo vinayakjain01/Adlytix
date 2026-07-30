@@ -1,0 +1,22 @@
+# The Dockerfile does `COPY . .`, so without this the image would include the
+# local virtualenv — Windows binaries that are useless in a Linux container,
+# and hundreds of megabytes that slow every deploy.
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dependencies are installed from requirements.txt in an earlier layer.
+.python-version
+
+# Never bake secrets into an image.
+.env
+.env.*
+
+# Local artefacts
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

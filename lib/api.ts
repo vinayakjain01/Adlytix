@@ -1,55 +1,72 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { apiJson } from "./http";
+import type { MergeCurrency, Product } from "./context";
 
-export interface ProductRow {
-  id?: string;
-  title?: string;
-  variant?: string;
-
-  metaSpend?: number;
-  googleCost?: number;
-  totalSpend?: number;
-  revenue?: number;
-  roi?: number;
-
-  itemsSold?: number;
-  ctr?: number;
-  cpm?: number;
-
-  category?: string;
-  quadrant?: string;
-  discounted?: boolean;
-
-  [key: string]:
-    | string
-    | number
-    | boolean
-    | undefined;
-}
-
+/**
+ * What POST /api/analyse actually returns.
+ *
+ * This previously declared only `products` and `summary`, while the merge hook
+ * read seven more fields off it — the extra keys only type-checked because the
+ * response was cast to `any` on the way out. Typing the call properly surfaced
+ * every one of them, so the shape below is the endpoint's real contract, read
+ * off the return statement in backend/main.py.
+ *
+ * `hasMonth`/`has_month` and `hasGoogle`/`has_google` both appear because the
+ * original client read the snake_case spellings the API never sent; both are
+ * accepted so the previous fallback behaviour is preserved exactly.
+ */
 export interface AnalyseResponse {
-  products: ProductRow[];
-  summary: any;
+  ok?: boolean;
+  products?: Product[];
+  /** Older alias for `products`, still tolerated by the merge hook. */
+  data?: Product[];
+  summary?: {
+    products?: number;
+    total_spend?: number;
+    total_rev?: number;
+    roi?: number;
+    meta_spend?: number;
+    google_cost?: number;
+    lpv?: number;
+  };
+  kpis?: Record<string, number>;
+  quadrants?: {
+    q1: Product[]; q2: Product[]; q3: Product[]; q4: Product[];
+    spCut: number; rvCut: number;
+  };
+  discountData?: unknown;
+  hasDiscount?: boolean;
+  discountedProducts?: number;
+  /** Which rate was applied to each source, so a run can be audited. */
+  currency?: MergeCurrency | null;
+  hasMonth?: boolean;
+  has_month?: boolean;
+  hasGoogle?: boolean;
+  has_google?: boolean;
+  warnings?: string[];
 }
 
-async function post(path: string, body: FormData | object) {
-  const isForm = body instanceof FormData;
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: isForm ? undefined : { "Content-Type": "application/json" },
-    body: isForm ? body : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  return res.json();
+// Routed through lib/http so the session cookie is attached and FastAPI's
+// {"detail": ...} bodies surface as readable messages rather than raw JSON.
+// No Content-Type is set: the browser must add the multipart boundary itself.
+function postForm(path: string, body: FormData) {
+  return apiJson<AnalyseResponse>(path, { method: "POST", body });
 }
 
 // ── Product Analysis ──────────────────────────────────────────────────
+export interface MergeCurrencyOptions {
+  /** Currency every figure is normalised into before aggregation. */
+  base: string;
+  meta: string;
+  shopify: string;
+  google: string;
+}
+
 export async function mergeFiles(
   meta: File,
   shopify: File,
-  google?: File | null
+  google?: File | null,
+  discount?: File | null,
+  currency?: MergeCurrencyOptions
 ) {
   const fd = new FormData();
 
@@ -60,49 +77,22 @@ export async function mergeFiles(
     fd.append("google_file", google);
   }
 
-  return post("/api/analyse", fd);
-}
+  // /api/analyse has always accepted this field and used it to run the
+  // discount engine — the client simply never sent it.
+  if (discount) {
+    fd.append("discount_file", discount);
+  }
 
-// ── Quadrant View ─────────────────────────────────────────────────────
-export async function runQuadrant(
-  meta: File,
-  shopify: File,
-  spendPct = 100,
-  revPct   = 100
-) {
-  const fd = new FormData();
-  fd.append("meta", meta);
-  fd.append("shopify", shopify);
-  fd.append("spend_pct", String(spendPct));
-  fd.append("rev_pct",   String(revPct));
-  return post("/api/quadrant", fd);
-}
+  // Declared as query parameters, matching the endpoint's signature. Omitted
+  // entirely when not supplied, which leaves the server on its defaults.
+  const query = currency
+    ? "?" + new URLSearchParams({
+        base_currency: currency.base,
+        meta_currency: currency.meta,
+        shopify_currency: currency.shopify,
+        google_currency: currency.google,
+      }).toString()
+    : "";
 
-export async function recalcQuadrant(
-  products: unknown[],
-  spCut: number,
-  rvCut: number
-) {
-  return post("/api/quadrant/recalc", { products, sp_cut: spCut, rv_cut: rvCut });
-}
-
-export async function getAiInsights(payload: object) {
-  return post("/api/ai-insights", payload);
-}
-
-// ── Discount Analysis ─────────────────────────────────────────────────
-export async function runDiscount(
-  meta:      File,
-  shopify:   File,
-  discount:  File,
-  spendPct = 100,
-  revPct   = 100
-) {
-  const fd = new FormData();
-  fd.append("meta",      meta);
-  fd.append("shopify",   shopify);
-  fd.append("discount",  discount);
-  fd.append("spend_pct", String(spendPct));
-  fd.append("rev_pct",   String(revPct));
-  return post("/api/discount", fd);
+  return postForm(`/api/analyse${query}`, fd);
 }

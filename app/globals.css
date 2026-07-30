@@ -1,90 +1,139 @@
 @import 'tailwindcss';
-@import 'tw-animate-css';
 
-@custom-variant dark (&:is(.dark *));
+/* ───────────────────────────────────────────────────────────────────────────
+   Adding `.adlytix` to an element opts that subtree into the Adlytix dark
+   design system. It also satisfies the `dark:` variant, so the shadcn
+   primitives (dropdown, select, popover, sheet, toast…) restyle themselves
+   without being forked.
+   ─────────────────────────────────────────────────────────────────────── */
+@custom-variant dark (&:is(.dark *, .adlytix, .adlytix *));
 
-/* ROASify Design System */
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROOT SCOPE
+   Every screen now renders inside `.adlytix`, so the old ROASify light palette
+   is gone. What remains is only what applies OUTSIDE that scope:
+
+     --background/--foreground  `body` (@layer base)
+     --border/--ring            `*` (@layer base)
+     --radius                   the rounded-* scale in @theme inline
+
+   These carry the dark values rather than the old light ones, so anything that
+   renders above `.adlytix` — `body` itself, or the error boundary when a page
+   fails before the shell mounts — matches the page instead of flashing light.
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-  /* Surface Colors */
-  --surface-page: #FAFAF8;
-  --surface-card: #FFFFFF;
-  --surface-sunken: #F2F0EA;
-  
-  /* Rail Colors */
-  --rail-bg: #17150F;
-  --rail-hover: #221F18;
-  
-  /* Text Colors */
-  --text-primary: #1A1814;
-  --text-secondary: #57544E;
-  --text-muted: #8B8780;
-  
-  /* Brand Colors */
-  --brand-primary: #4F46E5;
-  --brand-hover: #4338CA;
-  --brand-pressed: #3730A3;
-  --brand-subtle: #EEEDFB;
-  
-  /* Semantic Colors */
-  --success: #047857;
-  --warning: #B45309;
-  --danger: #B42318;
-  
-  /* Quadrant Colors */
-  --champions: #10B981;
-  --champions-bg: #E7F7F0;
-  --contenders: #3B82F6;
-  --contenders-bg: #EAF1FE;
-  --cruisers: #78716C;
-  --cruisers-bg: #F2F0EC;
-  --casualties: #EF4444;
-  --casualties-bg: #FDECEC;
-  
-  /* Border */
-  --border-default: #EEECE5;
-  --border-strong: #DEDBD2;
-  
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  
-  /* Shadcn defaults */
-  --background: #FAFAF8;
-  --foreground: #1A1814;
-  --card: #FFFFFF;
-  --card-foreground: #1A1814;
-  --popover: #FFFFFF;
-  --popover-foreground: #1A1814;
-  --primary: #4F46E5;
-  --primary-foreground: #FFFFFF;
-  --secondary: #F2F0EA;
-  --secondary-foreground: #1A1814;
-  --muted: #F2F0EA;
-  --muted-foreground: #8B8780;
-  --accent: #EEEDFB;
-  --accent-foreground: #4F46E5;
-  --destructive: #B42318;
-  --destructive-foreground: #FFFFFF;
-  --border: #EEECE5;
-  --input: #EEECE5;
-  --ring: #4F46E5;
   --radius: 0.625rem;
-  
-  /* Sidebar */
-  --sidebar: #17150F;
-  --sidebar-foreground: #FFFFFF;
-  --sidebar-primary: #4F46E5;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #221F18;
-  --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: #221F18;
-  --sidebar-ring: #4F46E5;
+  --background: #0B0F1A;
+  --foreground: #E8ECF5;
+  --border: #1F2942;
+  --ring: #6366F1;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADLYTIX DESIGN SYSTEM
+   ═══════════════════════════════════════════════════════════════════════════ */
+.adlytix {
+  /* Render native controls (scrollbars, date pickers, autofill) dark. */
+  color-scheme: dark;
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  --page: #0B0F1A;          /* app background                               */
+  --rail: #0D1220;          /* sidebar                                      */
+  --panel: #171F2F;         /* cards, panels                                */
+  --panel-raised: #1A2234;  /* row hover, raised rows                       */
+  --panel-sunken: #101728;  /* inset wells, icon tiles                      */
+  --field: #111827;         /* inputs, selects, secondary buttons           */
+  --overlay: #131A2B;       /* dropdowns, popovers, slide-overs             */
+  --header: #141B29;        /* sticky table headers                         */
+
+  /* ── Lines ────────────────────────────────────────────────────────────── */
+  --line: #232C42;          /* default border                               */
+  --line-subtle: #1B2338;   /* table row dividers                           */
+  --line-strong: #2A3554;   /* emphasised / accented cards                  */
+  --line-hover: #3A466A;    /* interactive hover border                     */
+
+  /* ── Ink ──────────────────────────────────────────────────────────────── */
+  --ink: #EEF2F9;           /* headings, primary values                     */
+  --ink-body: #C6CFDE;      /* body copy                                    */
+  --ink-secondary: #98A3B8; /* supporting copy                              */
+  --ink-tertiary: #7C879E;  /* meta, monospace ids                          */
+  --ink-muted: #66718A;     /* section labels, captions                     */
+  --ink-faint: #4E5872;     /* rank numbers, empty glyphs                   */
+  --ink-disabled: #3B455C;  /* disabled controls, separators                */
+
+  /* ── Brand ────────────────────────────────────────────────────────────── */
+  --brand: #5B7CFF;
+  --brand-alt: #7C5CF6;     /* gradient terminus                            */
+  --brand-300: #7C93FF;     /* links                                        */
+  --brand-200: #93A7FF;     /* active pills                                 */
+  --brand-100: #A5B4FF;     /* link hover                                   */
+  --brand-tint: rgb(91 124 255 / 0.13);
+  --brand-tint-strong: rgb(91 124 255 / 0.22);
+
+  /* ── 4C quadrants ─────────────────────────────────────────────────────── */
+  --q-champions: #34D399;
+  --q-champions-tint: rgb(52 211 153 / 0.14);
+  --q-contenders: #7C93FF;
+  --q-contenders-tint: rgb(124 147 255 / 0.16);
+  --q-cruisers: #8892A8;
+  --q-cruisers-tint: rgb(136 146 168 / 0.16);
+  --q-casualties: #FB7185;
+  --q-casualties-tint: rgb(251 113 133 / 0.14);
+
+  /* ── Status ───────────────────────────────────────────────────────────── */
+  --ok: #34D399;
+  --ok-soft: #6EE7B7;
+  --ok-tint: rgb(52 211 153 / 0.12);
+  --warn: #FBBF24;
+  --warn-tint: rgb(251 191 36 / 0.12);
+  --bad: #FB7185;
+  --bad-soft: #FCA5B5;
+  --bad-tint: rgb(251 113 133 / 0.12);
+  --bad-line: #4A2230;
+
+  /* ── Shadcn semantic tokens — remapped to the Adlytix palette so every
+        existing primitive inherits the new look instead of being forked. ── */
+  --background: var(--page);
+  --foreground: var(--ink);
+  --card: var(--panel);
+  --card-foreground: var(--ink);
+  --popover: var(--overlay);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--field);
+  --secondary-foreground: var(--ink-body);
+  --muted: var(--panel-raised);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--brand-tint);
+  --accent-foreground: var(--brand-100);
+  --destructive: var(--bad);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--brand);
+  --radius: 0.75rem;
+
+  --sidebar: var(--rail);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #161E31;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line-subtle);
+  --sidebar-ring: var(--brand);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME — exposes the tokens above as Tailwind utilities.
+   `inline` keeps the emitted CSS pointing at var(), which is what lets the
+   `.adlytix` scope override values at runtime.
+   ═══════════════════════════════════════════════════════════════════════════ */
 @theme inline {
-  --font-sans: 'General Sans', 'Geist', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Geist Mono', monospace;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Shadcn semantics */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -104,10 +153,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -116,6 +161,135 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Adlytix surfaces → bg-page, bg-panel, bg-field … */
+  --color-page: var(--page);
+  --color-rail: var(--rail);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-panel-sunken: var(--panel-sunken);
+  --color-field: var(--field);
+  --color-overlay: var(--overlay);
+  --color-header: var(--header);
+
+  /* Lines → border-line, border-line-strong … */
+  --color-line: var(--line);
+  --color-line-subtle: var(--line-subtle);
+  --color-line-strong: var(--line-strong);
+  --color-line-hover: var(--line-hover);
+
+  /* Ink → text-ink, text-ink-muted … */
+  --color-ink: var(--ink);
+  --color-ink-body: var(--ink-body);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-tertiary: var(--ink-tertiary);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-disabled: var(--ink-disabled);
+
+  /* Brand → bg-brand, text-brand-300 … */
+  --color-brand: var(--brand);
+  --color-brand-alt: var(--brand-alt);
+  --color-brand-300: var(--brand-300);
+  --color-brand-200: var(--brand-200);
+  --color-brand-100: var(--brand-100);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-tint-strong: var(--brand-tint-strong);
+
+  /* 4C quadrants → text-q-champions, bg-q-casualties-tint … */
+  --color-q-champions: var(--q-champions);
+  --color-q-champions-tint: var(--q-champions-tint);
+  --color-q-contenders: var(--q-contenders);
+  --color-q-contenders-tint: var(--q-contenders-tint);
+  --color-q-cruisers: var(--q-cruisers);
+  --color-q-cruisers-tint: var(--q-cruisers-tint);
+  --color-q-casualties: var(--q-casualties);
+  --color-q-casualties-tint: var(--q-casualties-tint);
+
+  /* Status → text-ok, bg-warn-tint … */
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-tint: var(--ok-tint);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-tint: var(--bad-tint);
+  --color-bad-line: var(--bad-line);
+
+  /* Radii — shadcn scale plus the Adlytix named steps */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-chip: 10px;
+  --radius-control: 12px;
+  --radius-panel: 16px;
+  --radius-card: 18px;
+
+  /* Elevation */
+  --shadow-brand: 0 8px 22px rgb(91 124 255 / 0.26);
+  --shadow-brand-lg: 0 14px 32px rgb(91 124 255 / 0.38);
+  --shadow-card-hover: 0 18px 40px rgb(0 0 0 / 0.45);
+  --shadow-overlay: 0 24px 60px rgb(0 0 0 / 0.55);
+  --shadow-toast: 0 20px 50px rgb(0 0 0 / 0.55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOTION — the Adlytix animation set. `animate-spin` ships with Tailwind.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@theme {
+  --animate-fade-up: fadeUp 0.34s ease both;
+  --animate-fade-in: fadeIn 0.22s ease both;
+  --animate-pulse-dot: pulseDot 2.2s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.3s linear infinite;
+  --animate-floaty: floaty 4s ease-in-out infinite;
+  --animate-glow: glow 7s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+@keyframes glow {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.9; }
+}
+
+/* Respect the OS reduced-motion preference — the design leans on ambient
+   loops (glow, floaty, pulse) that should not run for those users. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The brand gradient recurs on every primary action and the logo mark;
+   a gradient cannot be expressed as a colour token. */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(135deg, var(--brand), var(--brand-alt));
 }
 
 @layer base {
@@ -132,22 +306,18 @@
   font-variant-numeric: tabular-nums lining-nums;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+/* Adlytix — inset thumb that reads as floating on the dark page */
+.adlytix ::-webkit-scrollbar { width: 10px; height: 10px; }
+.adlytix ::-webkit-scrollbar-track { background: transparent; }
+.adlytix ::-webkit-scrollbar-thumb {
+  background: #263049;
+  border-radius: 8px;
+  border: 3px solid var(--page);
 }
+.adlytix ::-webkit-scrollbar-thumb:hover { background: #36425F; }
 
-::-webkit-scrollbar-track {
-  background: var(--surface-sunken);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+/* ── Form controls ──────────────────────────────────────────────────────── */
+.adlytix input[type='range'] { accent-color: var(--brand); }
+.adlytix ::selection { background: var(--brand-tint-strong); color: var(--ink); }
+.adlytix ::placeholder { color: var(--ink-faint); }

@@ -1,275 +1,245 @@
 'use client';
 
-import { useCallback, useMemo, useState, useRef } from 'react';
-import { DashboardLayout } from '@/components/layout/dashboard-layout';
-import { KpiStrip } from '@/components/ui/kpi-card';
-import { DataTable } from '@/components/ui/data-table';
-import { UploadGrid } from '@/components/product-analysis/upload-cards';
-import { TopPerformers } from '@/components/product-analysis/top-performers';
-import { ColumnsAndFilters } from '@/components/product-analysis/columns-filters';
-import type { ActiveFilter } from '@/components/product-analysis/columns-filters';
-import { DownloadBand } from '@/components/product-analysis/download-band';
-import { ProductAnalysisPanel } from '@/components/product-analysis/right-panel';
-import { FilteredTotalsBar } from '@/components/product-analysis/filtered-totals-bar';
-import { Button } from '@/components/ui/button';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { toast } from 'sonner';
+import { ArrowRight, Upload } from 'lucide-react';
+import { AppShell } from '@/components/layout/app-shell';
+import { StatStrip } from '@/components/ui/stat-card';
+import { MetricsBar, type MetricItem } from '@/components/products/metrics-bar';
+import { ColumnsAndFilters } from '@/components/products/columns-and-filters';
+import { ProductTable } from '@/components/products/product-table';
+import { TopPerformers } from '@/components/products/top-performers';
+import { ExportBand } from '@/components/products/export-band';
 import { useApp } from '@/lib/context';
-import type { NormProduct } from '@/lib/context';
-import { mergeFiles } from '@/lib/api';
-import { cn } from '@/lib/utils';
-import { CheckCircle2, Loader2, AlertTriangle, Search, X } from 'lucide-react';
-
-const DEFAULT_COLUMNS = [
-  'id', 'title', 'variant', 'metaSpend', 'totalSpend',
-  'revenue', 'roi', 'itemsSold', 'ctr', 'cpm',
-];
-
-function applyFilters(products: NormProduct[], filters: ActiveFilter[]): NormProduct[] {
-  if (!filters.length) return products;
-  return products.filter(p =>
-    filters.every(f => {
-      const val = Number((p as any)[f.metric] ?? 0);
-      switch (f.operator) {
-        case '>':       return val >  f.value;
-        case '<':       return val <  f.value;
-        case '=':       return val === f.value;
-        case '>=':      return val >= f.value;
-        case '<=':      return val <= f.value;
-        case 'between': return val >= f.value && (f.value2 === undefined || val <= f.value2);
-        default:        return true;
-      }
-    })
-  );
-}
+import { DEFAULT_COLUMNS, type ColumnKey } from '@/lib/product-columns';
+import {
+  applyFilters, computeAverages, computeKpis, computeTotals, searchProducts,
+  type ActiveFilter,
+} from '@/lib/product-metrics';
+import {
+  buildProductExportRows, defaultProductExportName, downloadCsv,
+} from '@/lib/csv-export';
+import { num, roi } from '@/lib/formatters';
+import { track } from '@/lib/analytics/client';
+import { useSettledValue } from '@/hooks/use-settled-value';
+import { useMoney } from '@/hooks/use-money';
 
 export default function ProductAnalysisPage() {
-  const {
-    metaFile, shopifyFile, googleFile,
-    mergedData, mergedSummary, warnings,
-    setMergedResult,
-    // ── From context — the single source of truth ──
-    aggregatedProducts,   // month-filtered + grouped by product ID
-    allMonths,
-    selectedMonths,
-  } = useApp();
+  // aggregatedProducts is the single source of truth: month-filtered and
+  // grouped by product ID by lib/context.tsx.
+  const { mergedData, aggregatedProducts, allMonths, selectedMonths } = useApp();
+  // A real dependency for the memos below; inr() alone would go stale.
+  const money = useMoney();
 
-  const [loading,        setLoading]        = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [runId,          setRunId]          = useState<string | null>(null);
-  const [activeFilters,  setActiveFilters]  = useState<ActiveFilter[]>([]);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_COLUMNS);
-  const [searchQuery,    setSearchQuery]    = useState('');
+  const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>([...DEFAULT_COLUMNS]);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [search, setSearch] = useState('');
+  const [filename, setFilename] = useState(defaultProductExportName);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  const metaF = metaFile?.file   ?? null;
-  const shopF = shopifyFile?.file ?? null;
-  const gooF  = googleFile?.file  ?? null;
+  // search → metric filters, exactly the order the original applied them.
+  const searched = useMemo(() => searchProducts(aggregatedProducts, search), [aggregatedProducts, search]);
+  const finalProducts = useMemo(() => applyFilters(searched, activeFilters), [searched, activeFilters]);
 
-  const readyToMerge = metaF !== null && shopF !== null;
-  const fileCount    = [metaF, shopF, gooF].filter(Boolean).length;
-  const isMerged     = mergedData !== null && mergedSummary !== null;
+  // KPIs reflect the selected months and ignore search/metric filters.
+  const kpis = useMemo(() => computeKpis(aggregatedProducts), [aggregatedProducts]);
 
-  const handleMerge = useCallback(async () => {
-    if (!readyToMerge || !metaF || !shopF) return;
-    setLoading(true);
-    setError(null);
-    setSearchQuery('');
-    try {
-      const result   = await mergeFiles(metaF, shopF, gooF);
-      const products = result.products ?? result.data ?? [];
-      const summary  = result.summary  ?? {};
-      const warns    = result.warnings ?? [];
+  // Totals and averages track every active filter and the search box.
+  const totals = useMemo(() => computeTotals(finalProducts), [finalProducts]);
+  const averages = useMemo(() => computeAverages(finalProducts), [finalProducts]);
 
-      // Compute totals from raw rows as fallback if API summary has zeros
-      const calcTotalSpend = products.reduce((s: number, p: any) => s + Number(p['Total Spend']     ?? p.totalSpend  ?? 0), 0);
-      const calcTotalRev   = products.reduce((s: number, p: any) => s + Number(p['Shopify Revenue'] ?? p.revenue     ?? 0), 0);
-      const calcMetaSpend  = products.reduce((s: number, p: any) => s + Number(p['Meta Spend']      ?? p.metaSpend   ?? 0), 0);
-      const calcGoogleCost = products.reduce((s: number, p: any) => s + Number(p['Google Cost']     ?? p.googleCost  ?? 0), 0);
+  const isFiltered = finalProducts.length < aggregatedProducts.length;
 
-      setMergedResult(products, {
-        products:    summary.products    ?? products.length,
-        total_spend: summary.total_spend || calcTotalSpend,
-        total_rev:   summary.total_rev   || calcTotalRev,
-        roi:         summary.roi         || (calcTotalSpend > 0 ? calcTotalRev / calcTotalSpend : 0),
-        meta_spend:  summary.meta_spend  || calcMetaSpend,
-        google_cost: summary.google_cost || calcGoogleCost,
-        lpv:         summary.lpv         ?? 0,
-      }, result.has_month ?? false, result.has_google ?? (gooF !== null), warns);
-
-      const now = new Date();
-      setRunId(`pa_${now.getFullYear()}_${String(now.getMonth()+1).padStart(2,'0')}_${String(now.getDate()).padStart(2,'0')}`);
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to merge files.');
-    } finally {
-      setLoading(false);
-    }
-  }, [readyToMerge, metaF, shopF, gooF, setMergedResult]);
-
-  // ── All downstream data flows from context.aggregatedProducts ───────────
-  // aggregatedProducts = mergedData → filter to selectedMonths → group by product ID → sum
-
-  const searchFiltered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return aggregatedProducts;
-    return aggregatedProducts.filter(p =>
-      p.id.toLowerCase().includes(q) ||
-      p.title.toLowerCase().includes(q) ||
-      p.variant.toLowerCase().includes(q)
-    );
-  }, [aggregatedProducts, searchQuery]);
-
-  // finalProducts is what the DataTable and the totals bar both read from —
-  // it reflects every active filter + search query simultaneously.
-  const finalProducts = useMemo(
-    () => applyFilters(searchFiltered, activeFilters),
-    [searchFiltered, activeFilters]
+  const totalItems: MetricItem[] = useMemo(
+    () => [
+      {
+        label: 'Products',
+        value: num(totals.count),
+        note: isFiltered ? `of ${num(aggregatedProducts.length)}` : undefined,
+      },
+      { label: 'Meta spend', value: money(totals.metaSpend, true) },
+      { label: 'Google cost', value: money(totals.googleCost, true) },
+      { label: 'Total spend', value: money(totals.totalSpend, true) },
+      { label: 'Revenue', value: money(totals.revenue, true), highlight: true },
+      { label: 'ROI', value: roi(totals.roi), highlight: totals.roi >= 3 },
+      { label: 'Items sold', value: num(totals.itemsSold) },
+      { label: 'Avg CTR', value: `${totals.avgCtr.toFixed(1)}%` },
+      { label: 'Avg CPM', value: money(totals.avgCpm, true) },
+    ],
+    [totals, isFiltered, aggregatedProducts.length, money],
   );
 
-  // KPIs derived from aggregatedProducts (always reflects selected months, ignores search/metric filters)
-  const kpiCards = useMemo(() => {
-    if (!aggregatedProducts.length) return [];
-    let totSpend = 0, totRev = 0, totMeta = 0, totGoogle = 0;
-    for (const p of aggregatedProducts) {
-      totSpend  += p.totalSpend;
-      totRev    += p.revenue;
-      totMeta   += p.metaSpend;
-      totGoogle += p.googleCost;
-    }
-    return [
-      { label: 'PRODUCTS',    value: aggregatedProducts.length, format: 'number'   as const },
-      { label: 'META SPEND',  value: totMeta,                   format: 'currency' as const },
-      { label: 'GOOGLE COST', value: totGoogle,                 format: 'currency' as const },
-      { label: 'TOTAL SPEND', value: totSpend,                  format: 'currency' as const },
-      { label: 'REVENUE',     value: totRev,                    format: 'currency' as const },
-      { label: 'OVERALL ROI', value: totSpend > 0 ? totRev / totSpend : 0, format: 'roi' as const },
-    ];
-  }, [aggregatedProducts]);
+  const averageItems: MetricItem[] = useMemo(
+    () => [
+      { label: 'Meta spend', value: money(averages.metaSpend) },
+      { label: 'Google cost', value: money(averages.googleCost) },
+      { label: 'Total spend', value: money(averages.totalSpend) },
+      { label: 'Revenue', value: money(averages.revenue) },
+      { label: 'ROI', value: roi(averages.roi), highlight: averages.roi >= 3 },
+      { label: 'Units', value: num(averages.itemsSold) },
+    ],
+    [averages, money],
+  );
 
-  const monthLabel = allMonths.length > 0
-    ? (selectedMonths.size === allMonths.length
-        ? `${allMonths.length} months`
-        : `${selectedMonths.size} of ${allMonths.length} months`)
-    : null;
+  const handleDownload = useCallback(() => {
+    if (finalProducts.length === 0) return;
+    const name = filename.trim() || 'roasify_export.csv';
+    downloadCsv(name, buildProductExportRows(finalProducts, activeFilters));
+    track('csv_downloaded', {
+      kind: 'products',
+      row_count: finalProducts.length,
+      was_filtered: isFiltered,
+      filter_count: activeFilters.length,
+      // Length only: an operator-set filename routinely carries the client name.
+      filename_length: name.length,
+    });
+    toast.success(`Exported ${num(finalProducts.length)} rows`);
+  }, [finalProducts, activeFilters, filename, isFiltered]);
 
-  const breadcrumbs = [
-    { label: 'Workspace' },
-    { label: 'Product Analysis' },
-    { label: 'Overall View' },
-  ];
+  const clearAll = useCallback(() => {
+    track('filters_cleared', { filter_count: activeFilters.length, had_search: search.length > 0 });
+    setSearch('');
+    setActiveFilters([]);
+  }, [activeFilters.length, search]);
+
+  // Both are debounced: the search box and the filter value fields change on
+  // every keystroke, and one event per character would be noise.
+  useSettledValue(search, (term) => {
+    if (term.trim().length === 0) return;
+    track('product_searched', {
+      term_length: term.trim().length,
+      rows_matched: finalProducts.length,
+      rows_total: aggregatedProducts.length,
+    });
+  });
+
+  // Wrapped rather than tracked in an effect so the added/removed column can be
+  // diffed against the current selection. The event is emitted outside the state
+  // updater: React may invoke an updater twice in development, which would
+  // double-count the change.
+  const handleColumnsChange = useCallback(
+    (next: ColumnKey[]) => {
+      track('columns_changed', {
+        visible_count: next.length,
+        added: next.find((c) => !visibleColumns.includes(c)) ?? null,
+        removed: visibleColumns.find((c) => !next.includes(c)) ?? null,
+      });
+      setVisibleColumns(next);
+    },
+    [visibleColumns],
+  );
+
+  useSettledValue(activeFilters, (filters) => {
+    if (filters.length === 0) return;
+    track('filters_applied', {
+      // Metric names are column labels, not values.
+      metrics: filters.map((f) => f.metric),
+      filter_count: filters.length,
+      rows_matched: finalProducts.length,
+      rows_total: aggregatedProducts.length,
+    });
+  });
+
+  const monthLabel =
+    allMonths.length > 0
+      ? selectedMonths.size === allMonths.length
+        ? `all ${allMonths.length} months`
+        : `${selectedMonths.size} of ${allMonths.length} months`
+      : null;
+
+  if (!mergedData || aggregatedProducts.length === 0) {
+    return (
+      <AppShell>
+        <div className="animate-fade-up">
+          <header className="mb-7">
+            <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">Product analysis</h1>
+            <p className="text-[14px] text-ink-secondary">
+              One row per product, aggregated across the selected months.
+            </p>
+          </header>
+
+          <div className="rounded-card border border-line bg-panel px-6 py-16 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-panel border border-line bg-panel-sunken text-ink-faint animate-floaty">
+              <Upload className="h-5 w-5" />
+            </div>
+            <p className="mb-1.5 text-[17px] font-medium">No merged data yet</p>
+            <p className="mx-auto mb-6 max-w-md text-[13.5px] leading-relaxed text-ink-tertiary">
+              Upload the Meta Ads and Shopify exports on the Data sources screen and run a
+              merge — the table is built from that result.
+            </p>
+            <Link
+              href="/sources"
+              className="inline-flex h-9 items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-transform hover:-translate-y-px"
+            >
+              Go to data sources
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
-    <DashboardLayout
-      breadcrumbs={breadcrumbs}
-      rightPanel={isMerged ? <ProductAnalysisPanel /> : undefined}
-      rightPanelTitle="Run Details"
+    <AppShell
+      onExport={handleDownload}
+      exportLabel={`Export ${num(finalProducts.length)} rows`}
     >
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#1A1814] mb-1">Product Analysis</h1>
-        <p className="text-[#57544E] text-sm">
-          Merge Meta Ads, Shopify, and Google Ads into one product-level performance table.
-        </p>
-      </div>
+      <div className="animate-fade-up">
+        <header className="mb-7">
+          <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">Product analysis</h1>
+          <p className="text-[14px] text-ink-secondary">
+            One row per product, aggregated across{' '}
+            {monthLabel ?? 'all available data'}.
+          </p>
+        </header>
 
-      <UploadGrid />
+        <div className="space-y-4">
+          <StatStrip cards={kpis} />
 
-      {/* Merge bar */}
-      <div className="mt-4 bg-white rounded-xl border border-[#EEECE5] px-5 py-3.5 flex items-center justify-between">
-        <p className="text-sm text-[#57544E]">
-          {readyToMerge
-            ? <><span className="font-medium text-[#1A1814]">{fileCount} file{fileCount !== 1 ? 's' : ''}</span> loaded — ready to merge</>
-            : 'Upload Meta Ads and Shopify exports to enable merge. Google Ads is optional.'}
-        </p>
-        <Button
-          onClick={handleMerge}
-          disabled={!readyToMerge || loading}
-          className={cn('bg-[#4F46E5] hover:bg-[#4338CA] min-w-[160px]', (!readyToMerge || loading) && 'opacity-60 cursor-not-allowed')}
-        >
-          {loading
-            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
-            : '▶  Merge & Analyse'}
-        </Button>
-      </div>
-
-      {error && (
-        <div className="mt-4 bg-red-50 border border-red-200 rounded-xl px-5 py-3.5 flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-red-800">Merge failed</p>
-            <p className="text-xs text-red-600 mt-0.5">{error}</p>
-          </div>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
-        </div>
-      )}
-
-      {warnings.length > 0 && isMerged && (
-        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
-          <p className="text-xs font-medium text-amber-800 mb-1">Warnings</p>
-          {warnings.map((w, i) => <p key={i} className="text-xs text-amber-700">• {w}</p>)}
-        </div>
-      )}
-
-      {isMerged && mergedData && (
-        <div className="mt-6 space-y-5 min-w-0">
-          {/* Success banner */}
-          <div className="bg-[#E7F7F0] rounded-xl px-5 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[#10B981]" />
-              <span className="text-sm text-[#1A1814]">
-                Data merged · <span className="font-semibold">{aggregatedProducts.length} products</span>
-                {monthLabel && <> · <span className="font-semibold">{monthLabel}</span></>}
-              </span>
-            </div>
-            {runId && <span className="font-mono text-xs text-[#57544E]">{runId}</span>}
-          </div>
-
-          {/* KPIs — live-updated from aggregatedProducts (month-sensitive, ignores search/filters) */}
-          {kpiCards.length > 0 && <KpiStrip cards={kpiCards} />}
-
-          {/* Top Performers — month-sensitive, totalSpend > 1 */}
           <TopPerformers tableRef={tableRef} />
 
-          {/* Columns & Filters */}
           <ColumnsAndFilters
-            onFiltersChange={setActiveFilters}
-            onColumnsChange={setVisibleColumns}
+            visibleColumns={visibleColumns}
+            onVisibleColumnsChange={handleColumnsChange}
+            activeFilters={activeFilters}
+            onActiveFiltersChange={setActiveFilters}
           />
 
-          {/* Search + row count */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8B8780]" />
-              <input
-                type="text"
-                placeholder="Search by product ID, title, or variant…"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-[#EEECE5] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/30 focus:border-[#4F46E5]"
-              />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8B8780] hover:text-[#1A1814]">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="text-sm text-[#57544E] whitespace-nowrap flex-shrink-0">
-              <span className="font-medium text-[#1A1814]">{finalProducts.length.toLocaleString('en-IN')}</span>
-              {' '}of {aggregatedProducts.length.toLocaleString('en-IN')} products
-            </div>
-          </div>
-
-          {/* ── TOTALS BAR — updates live with every search/filter change ── */}
-          <FilteredTotalsBar
-            products={finalProducts}
-            totalCount={aggregatedProducts.length}
+          <MetricsBar
+            title="Totals for current view"
+            items={totalItems}
+            badge={isFiltered ? 'Filtered' : undefined}
           />
 
-          {/* Data Table — driven by finalProducts (reacts to search, filters, month change) */}
           <div ref={tableRef}>
-            <DataTable products={finalProducts as any} columns={visibleColumns} />
+            <ProductTable
+              products={finalProducts}
+              columns={visibleColumns}
+              totalCount={aggregatedProducts.length}
+              search={search}
+              onSearchChange={setSearch}
+              onClearFilters={clearAll}
+            />
           </div>
 
-          <DownloadBand products={finalProducts} activeFilters={activeFilters} />
+          <MetricsBar title="Averages per product" items={averageItems} />
+
+          <p className="px-1 text-[12px] leading-relaxed text-ink-muted">
+            ROI = Shopify revenue ÷ total spend. Multi-month data is summed per product ID
+            before averaging, and every figure reflects the selected months only.
+          </p>
+
+          <ExportBand
+            products={finalProducts}
+            activeFilters={activeFilters}
+            filename={filename}
+            onFilenameChange={setFilename}
+            onDownload={handleDownload}
+          />
         </div>
-      )}
-    </DashboardLayout>
+      </div>
+    </AppShell>
   );
 }

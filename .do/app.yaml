@@ -25,9 +25,44 @@ services:
       - key: PORT
         value: "8000"
         scope: RUN_AND_BUILD_TIME
+      # ── Auth ──────────────────────────────────────────────────────────
+      - key: DATABASE_URL
+        value: "${adlytix-db.DATABASE_URL}"
+        scope: RUN_TIME
+      - key: ENVIRONMENT
+        value: production
+        scope: RUN_TIME
+      # Set these as encrypted secrets in the App Platform dashboard, not here.
+      #   JWT_SECRET      — required; the service refuses to start without it
+      #   ADMIN_EMAIL     — first administrator, seeded once on startup
+      #   ADMIN_PASSWORD  — 12+ characters
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      # Gemini. Leave unset to ship with AI insights disabled — the endpoint
+      # returns 503 and the screen says so rather than inventing advice.
+      # Server-side only: never expose this as a NEXT_PUBLIC_ variable.
+      - key: GOOGLE_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: ADMIN_EMAIL
+        scope: RUN_TIME
+        type: SECRET
+      - key: ADMIN_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
     routes:
       - path: /api
       - path: /health
+
+# ── DATABASE ───────────────────────────────────────────────────────────────
+# Stores accounts and sessions only. Uploaded files and analysis results are
+# never persisted — they stay in the browser for the length of a session.
+databases:
+  - name: adlytix-db
+    engine: PG
+    version: "16"
+    production: false # switch to true (and size up) for a paid cluster
 
 # ── FRONTEND STATIC SITE ───────────────────────────────────────────────────
 static_sites:
@@ -39,6 +74,24 @@ static_sites:
     envs:
       - key: NEXT_PUBLIC_API_URL
         value: "${APP_URL}"
+        scope: BUILD_TIME
+      # Analytics. BUILD_TIME because a static export inlines NEXT_PUBLIC_* at
+      # build time — changing these requires a rebuild, not just a restart.
+      # The project API key is not a secret (it is visible in the shipped
+      # bundle by design and is write-only), so it is not marked as one.
+      # Leave empty to ship with analytics disabled.
+      - key: NEXT_PUBLIC_POSTHOG_KEY
+        value: ""
+        scope: BUILD_TIME
+      - key: NEXT_PUBLIC_POSTHOG_HOST
+        value: "https://us.i.posthog.com"
+        scope: BUILD_TIME
+      - key: NEXT_PUBLIC_POSTHOG_UI_HOST
+        value: "https://us.posthog.com"
+        scope: BUILD_TIME
+      # Session replay records client spend and revenue tables; see .env.example.
+      - key: NEXT_PUBLIC_POSTHOG_SESSION_REPLAY
+        value: "false"
         scope: BUILD_TIME
       - key: NODE_VERSION
         value: "20"

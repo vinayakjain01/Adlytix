@@ -1,42 +1,60 @@
 // ── Display currency ────────────────────────────────────────────────────────
-// Purely cosmetic: swaps the symbol/grouping shown next to money values.
-// Underlying numbers are never converted — see lib/context.tsx for the
-// persisted selection and components/layout/top-bar.tsx for the picker UI.
-export type CurrencyCode = "INR" | "USD" | "CAD" | "EUR" | "GBP" | "AUD";
+// Money values arriving from /api/analyse are already normalised into the
+// merge's BASE currency (see backend/currency.py — that conversion happens
+// before any summing, which is what makes Total Spend and ROI meaningful).
+//
+// What happens here is the second, cosmetic step: rendering those base-currency
+// amounts in whichever currency the viewer picked. Only `inr()` scales.
+// Ratios (ROI, CTR) and counts (units, views) are currency-free and must never
+// be touched.
+//
+// The active factor is pushed in from lib/context.tsx. It is 1 whenever the
+// display currency equals the base, or whenever no rate is available — and in
+// that second case the UI says so rather than showing a converted-looking
+// figure that isn't.
+import { CURRENCIES, currencyOption, type CurrencyCode, type CurrencyOption } from "./currency";
 
-export interface CurrencyOption {
-  code: CurrencyCode;
-  symbol: string;
-  label: string;
-  locale: string;
-}
-
-export const CURRENCIES: CurrencyOption[] = [
-  { code: "INR", symbol: "₹",   label: "Indian Rupee",     locale: "en-IN" },
-  { code: "USD", symbol: "$",   label: "US Dollar",        locale: "en-US" },
-  { code: "CAD", symbol: "CA$", label: "Canadian Dollar",  locale: "en-CA" },
-  { code: "EUR", symbol: "€",   label: "Euro",             locale: "en-IE" },
-  { code: "GBP", symbol: "£",   label: "British Pound",    locale: "en-GB" },
-  { code: "AUD", symbol: "A$",  label: "Australian Dollar", locale: "en-AU" },
-];
+export { CURRENCIES };
+export type { CurrencyCode, CurrencyOption };
 
 let activeCurrency: CurrencyOption = CURRENCIES[0];
+let activeFactor = 1;
 
-export function setActiveCurrency(code: CurrencyCode): void {
-  activeCurrency = CURRENCIES.find(c => c.code === code) ?? CURRENCIES[0];
+export function setActiveCurrency(code: CurrencyCode, factor = 1): void {
+  activeCurrency = currencyOption(code);
+  activeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
 }
 
 export function getActiveCurrency(): CurrencyOption {
   return activeCurrency;
 }
 
+export function getActiveFactor(): number {
+  return activeFactor;
+}
+
 export function currencySymbol(): string {
   return activeCurrency.symbol;
 }
 
-export function inr(n: number | null | undefined, compact = false): string {
-  if (n == null || isNaN(n)) return "—";
-  const { symbol, locale, code } = activeCurrency;
+/**
+ * Formats a base-currency amount for display, with everything passed in.
+ *
+ * The pure core of `inr()`. It exists so a React memo can depend on the actual
+ * currency and rate: `inr()` reads them from module state, which React cannot
+ * observe, so a memoised figure would keep whatever currency it was first
+ * formatted in. See hooks/use-money.ts.
+ */
+export function formatMoney(
+  value: number | null | undefined,
+  code: CurrencyCode,
+  factor: number,
+  compact = false,
+): string {
+  if (value == null || isNaN(value)) return "—";
+  const { symbol, locale } = currencyOption(code);
+  // The only place a display conversion is applied.
+  const n = value * (Number.isFinite(factor) && factor > 0 ? factor : 1);
 
   // Rounding straight to whole units makes any genuine amount under ~0.5
   // display as a misleading "0" — this shows up constantly on per-product
@@ -64,6 +82,17 @@ export function inr(n: number | null | undefined, compact = false): string {
   return symbol + v.toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
+/**
+ * Formats using the currently active display currency.
+ *
+ * Correct anywhere the call happens during render, which is the vast majority of
+ * uses. Inside a `useMemo`, use `useMoney()` instead — this function's result
+ * depends on module state that React cannot see, so a memo would go stale.
+ */
+export function inr(value: number | null | undefined, compact = false): string {
+  return formatMoney(value, activeCurrency.code, activeFactor, compact);
+}
+
 export function roi(n: number | null | undefined): string {
   if (n == null || !isFinite(n)) return "—";
   return n.toFixed(1) + "x";
@@ -82,6 +111,17 @@ export function num(n: number | null | undefined): string {
 export function fileSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+/**
+ * Semantic tone for an ROI value, using the same thresholds as roiColor()
+ * below. Returns a tone rather than Tailwind classes so the dark screens can
+ * map it to their own palette without duplicating the business thresholds.
+ */
+export function roiTone(r: number): 'good' | 'bad' | 'neutral' {
+  if (r >= 8) return 'good';
+  if (r < 3)  return 'bad';
+  return 'neutral';
 }
 
 // Returns a CSS class string for coloring ROI values

@@ -1,0 +1,27 @@
+# Local Postgres for development and tests.
+# Production uses a managed database — see .do/app.yaml.
+#
+#   docker compose up -d db
+#   docker compose down          # keeps data
+#   docker compose down -v       # wipes data
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: adlytix-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adlytix
+      POSTGRES_PASSWORD: adlytix_dev
+      POSTGRES_DB: adlytix
+    ports:
+      - '5433:5432' # 5433 on the host, to avoid clashing with a local Postgres
+    volumes:
+      - adlytix_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U adlytix -d adlytix']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  adlytix_pgdata:
