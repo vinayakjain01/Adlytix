@@ -7,7 +7,20 @@
 
 import { captureError } from './analytics/client';
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+/**
+ * Where the API lives.
+ *
+ * An empty string means "same origin", which is how both deployment targets
+ * serve it: the API is routed under /api on the app's own domain. That is also
+ * the default for a production build — falling back to localhost:8000 there
+ * would point a deployed site at the visitor's own machine and fail with no
+ * obvious cause. Development still defaults to the local API.
+ *
+ * Set NEXT_PUBLIC_API_URL explicitly only when the API is on a different host.
+ */
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000');
 
 export class ApiError extends Error {
   readonly status: number;

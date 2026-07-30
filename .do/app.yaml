@@ -1,8 +1,7 @@
 # .do/app.yaml — DigitalOcean App Platform spec
 # Docs: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
 
-name: roasify
-
+name: adlytix
 # ── BACKEND SERVICE ────────────────────────────────────────────────────────
 services:
   - name: api
