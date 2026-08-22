@@ -16,6 +16,11 @@ from data_cleaner import clean_meta, clean_shopify, clean_google
 from analytics import run_overall_view, run_product_analysis, run_discount_analysis, clean_pid
 from auth import current_user, init_auth, router as auth_router
 from insights import router as insights_router
+from integrations.router import router as integrations_router
+from integrations.shopify_router import router as shopify_router
+from integrations.meta_router import router as meta_router
+from reporting.router import router as reporting_router
+from sync.router import router as sync_router
 from currency import DEFAULT_BASE, RateUnavailable, SUPPORTED, get_rates, normalise_sources
 from models import User
 
@@ -50,6 +55,11 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(insights_router)
+app.include_router(integrations_router)
+app.include_router(shopify_router)
+app.include_router(meta_router)
+app.include_router(reporting_router)
+app.include_router(sync_router)
 
 
 @app.on_event("startup")

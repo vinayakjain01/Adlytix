@@ -13,5 +13,11 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
   },
+  // Local dev only: lets `next dev`'s HMR/dev-resource requests through when
+  // the app is opened via 127.0.0.1 instead of localhost (needed here since
+  // Docker Desktop's WSL relay collides with "localhost" resolving to ::1 —
+  // see the notes in backend/.env and .env.local). Has no effect on
+  // `next build`'s static export.
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
 }
 export default nextConfig

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
-import { BRAND, NAV_GROUPS, navItemsFor } from '@/lib/nav';
+import { BRAND, NAV_GROUPS, isNavItemActive, navItemsFor } from '@/lib/nav';
 import { useAuth } from '@/lib/auth-context';
 import { initialsOf, roleLabel } from '@/lib/auth';
 import { useAiInsights } from '@/lib/insights-context';
@@ -77,8 +77,7 @@ export function AppSidebar() {
               </p>
 
               {items.map((item) => {
-                const active =
-                  pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const active = isNavItemActive(item, pathname);
                 const Icon = item.icon;
 
                 return (

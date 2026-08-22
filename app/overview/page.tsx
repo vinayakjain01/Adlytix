@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowRight, RefreshCw, Sparkles, Upload } from 'lucide-react';
+import { ArrowRight, Plug, RefreshCw, Sparkles, Upload } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { StatStrip, type StatCardData } from '@/components/ui/stat-card';
 import { SpendRevenueChart } from '@/components/overview/spend-revenue-chart';
@@ -109,16 +109,28 @@ export default function OverviewPage() {
             </div>
             <p className="mb-1.5 text-[17px] font-medium">No data yet</p>
             <p className="mx-auto mb-6 max-w-md text-[13.5px] leading-relaxed text-ink-tertiary">
-              Upload your Meta Ads and Shopify exports, then run a merge. Google Ads is
-              optional. Everything on this screen is derived from that single merge.
+              Upload your Meta Ads and Shopify exports and run a merge, or connect Shopify
+              and Meta directly and sync. Either way, everything on this screen is derived
+              from that data.
             </p>
-            <Link
-              href="/sources"
-              className="inline-flex h-9 items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-transform hover:-translate-y-px"
-            >
-              Upload data
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              <Link
+                href="/sources"
+                className="inline-flex h-9 items-center gap-2 rounded-control bg-brand-gradient px-4 text-[13px] font-medium text-white shadow-brand transition-transform hover:-translate-y-px"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload data
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+              <Link
+                href="/integrations"
+                className="inline-flex h-9 items-center gap-2 rounded-control border border-line bg-field px-4 text-[13px] text-ink-body transition-colors hover:border-line-hover hover:text-ink"
+              >
+                <Plug className="h-3.5 w-3.5" />
+                Connect an integration
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">

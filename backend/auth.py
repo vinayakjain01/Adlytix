@@ -8,11 +8,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field, TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session, joinedload
 
 from db import SessionLocal, engine, get_db
-from models import Base, Client, Role, User, UserStatus, utcnow
+from models import Client, Role, User, UserStatus, utcnow
 from security import (
     COOKIE_NAME, clear_session_cookie, create_token, decode_token,
     hash_password, set_session_cookie, verify_password,
@@ -139,6 +139,26 @@ def require_admin(user: User = Depends(current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This action requires an administrator account.",
+        )
+    return user
+
+
+def require_client_scope(user: User = Depends(current_user)) -> User:
+    """
+    Guards every tenant-owned resource added from the integrations phase
+    onward (integrations, Shopify/Meta data, analytics, ...).
+
+    This is the single place that resolves "which tenant can this request
+    see" — every such endpoint depends on this instead of accepting a
+    client_id from the request, so a client-supplied tenant id is never
+    trusted (architecture brief, Section 27). Platform admins have no
+    client_id and are deliberately excluded: they manage clients/users, not
+    a client's own integrations or data.
+    """
+    if user.client_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires a client-scoped account.",
         )
     return user
 
@@ -581,15 +601,24 @@ def admin_revoke_sessions(
 # ── First-run seeding ─────────────────────────────────────────────────
 def init_auth() -> None:
     """
-    Creates the tables and, if no administrator exists yet, the one described
-    by ADMIN_EMAIL / ADMIN_PASSWORD. Runs once at startup and is a no-op
+    Seeds the first administrator, if none exists yet, as described by
+    ADMIN_EMAIL / ADMIN_PASSWORD. Runs once at startup and is a no-op
     afterwards, so redeploying never resets or duplicates the account.
 
-    NOTE: schema changes are applied with create_all, which adds missing tables
-    but will not alter existing ones. Introduce Alembic before the first
-    schema change reaches production.
+    Schema creation/evolution is Alembic's job (backend/alembic/), not this
+    function's — run `alembic upgrade head` before starting the app. This
+    only verifies that migrations have actually been applied, so a forgotten
+    `alembic upgrade head` fails loudly at startup instead of the seeder
+    hitting "relation does not exist" with a confusing traceback.
     """
-    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if not inspector.has_table("clients") or not inspector.has_table("users"):
+        print(
+            "[auth] Required tables are missing. Run `alembic upgrade head` "
+            "(see backend/alembic/) before starting the app. Skipping seeding.",
+            file=sys.stderr,
+        )
+        return
 
     email = os.getenv("ADMIN_EMAIL", "").strip().lower()
     password = os.getenv("ADMIN_PASSWORD", "")

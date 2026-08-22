@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Play, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
+import { ModeToggle } from '@/components/integrations/mode-toggle';
 import { SourceUploads } from '@/components/sources/source-uploads';
 import { MergePipeline } from '@/components/sources/merge-pipeline';
 import { useMerge } from '@/hooks/use-merge';
@@ -48,6 +49,8 @@ export default function SourcesPage() {
   return (
     <AppShell>
       <div className="animate-fade-up">
+        <ModeToggle active="upload" />
+
         <header className="mb-7">
           <h1 className="mb-1.5 text-[27px] font-semibold tracking-[-0.03em]">Data sources</h1>
           <p className="text-[14px] text-ink-secondary">

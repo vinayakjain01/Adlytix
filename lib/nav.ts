@@ -23,6 +23,13 @@ export interface NavItem {
    * the route directly gets a refusal from the server, not data.
    */
   adminOnly?: boolean;
+  /**
+   * Other routes that are this same nav entry in disguise — e.g. Integration
+   * mode lives at its own route, switched to from Data Source Upload via an
+   * in-page toggle rather than a second sidebar link, so both routes should
+   * highlight (and breadcrumb as) one sidebar item, not two.
+   */
+  aliases?: string[];
 }
 
 export const NAV_GROUPS: { id: NavGroupId; label: string }[] = [
@@ -36,7 +43,7 @@ export const NAV_GROUPS: { id: NavGroupId; label: string }[] = [
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: LayoutGrid, group: 'workspace' },
-  { href: '/sources', label: 'Data sources', icon: Upload, group: 'workspace' },
+  { href: '/sources', label: 'Data sources', icon: Upload, group: 'workspace', aliases: ['/integrations'] },
   { href: '/product-analysis', label: 'Product analysis', icon: Table2, group: 'workspace' },
   { href: '/quadrant-view', label: '4C quadrant', icon: Grid2X2, group: 'workspace' },
   { href: '/discount-analysis', label: 'Discounts', icon: Percent, group: 'workspace' },
@@ -51,10 +58,17 @@ export function navItemsFor(group: NavGroupId, isPlatformAdmin = false): NavItem
   );
 }
 
-/** Longest-prefix match so nested routes still highlight their parent. */
+/** True if `pathname` is this item's own route or one of its aliases (see NavItem.aliases). */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  return [item.href, ...(item.aliases ?? [])].some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
+
+/** Longest-prefix match (own route or alias) so nested/aliased routes still highlight their parent. */
 export function findNavItem(pathname: string): NavItem | undefined {
   return NAV_ITEMS
-    .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .filter((item) => isNavItemActive(item, pathname))
     .sort((a, b) => b.href.length - a.href.length)[0];
 }
 
