@@ -177,10 +177,17 @@ class MetaInsightDaily(Base):
     spend: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Reach (added for Campaign/Ad Audit's frequency = impressions/reach —
+    # Meta doesn't backfill this on rows synced before the column existed).
+    reach: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Meta's raw "actions" array (purchases, add-to-cart, etc.) — kept as
     # JSONB rather than normalized columns per action type, since the set of
     # action types is provider-defined and open-ended (Section 9 of the brief).
     actions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Meta's own attributed conversion VALUE per action type (its "platform
+    # ROAS" numerator) — real Meta-reported figures, not Shopify revenue and
+    # not computed by us. Added alongside `actions` for Campaign/Ad Audit.
+    action_values: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

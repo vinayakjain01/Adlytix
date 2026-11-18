@@ -207,7 +207,9 @@ def _upsert_insight(
         spend=_num(data.get("spend")),
         impressions=_int(data.get("impressions")),
         clicks=_int(data.get("clicks")),
+        reach=_int(data.get("reach")),
         actions=data.get("actions") or [],
+        action_values=data.get("action_values") or [],
         raw_data=data,
     )
     stmt = stmt.on_conflict_do_update(
@@ -220,7 +222,9 @@ def _upsert_insight(
             "spend": stmt.excluded.spend,
             "impressions": stmt.excluded.impressions,
             "clicks": stmt.excluded.clicks,
+            "reach": stmt.excluded.reach,
             "actions": stmt.excluded.actions,
+            "action_values": stmt.excluded.action_values,
             "raw_data": stmt.excluded.raw_data,
         },
     )

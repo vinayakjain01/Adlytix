@@ -187,7 +187,10 @@ class MetaProvider(AdsProvider):
     async def fetch_insights(
         self, credentials: dict, account_id: str, *, since: Any, until: Any
     ) -> AsyncIterator[dict]:
-        fields = "campaign_id,adset_id,ad_id,spend,impressions,clicks,actions,date_start,date_stop"
+        fields = (
+            "campaign_id,adset_id,ad_id,spend,impressions,clicks,reach,"
+            "actions,action_values,date_start,date_stop"
+        )
         async for row in self._paginate(
             credentials, f"{account_id}/insights", fields,
             extra_params={
