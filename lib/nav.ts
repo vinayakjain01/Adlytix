@@ -1,5 +1,6 @@
 import {
   LayoutGrid, Upload, Table2, Grid2X2, Percent, Users, Sparkles, Settings,
+  Target, Grid3x3, Radar,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -44,8 +45,11 @@ export const NAV_GROUPS: { id: NavGroupId; label: string }[] = [
 export const NAV_ITEMS: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: LayoutGrid, group: 'workspace' },
   { href: '/sources', label: 'Data sources', icon: Upload, group: 'workspace', aliases: ['/integrations'] },
+  { href: '/campaigns', label: 'Audit', icon: Target, group: 'workspace', aliases: ['/ads'] },
   { href: '/product-analysis', label: 'Product analysis', icon: Table2, group: 'workspace' },
+  { href: '/product-ad-matrix', label: 'Product × Ad matrix', icon: Grid3x3, group: 'workspace' },
   { href: '/quadrant-view', label: '4C quadrant', icon: Grid2X2, group: 'workspace' },
+  { href: '/opportunity-center', label: 'Opportunity center', icon: Radar, group: 'workspace' },
   { href: '/discount-analysis', label: 'Discounts', icon: Percent, group: 'workspace' },
   { href: '/insights', label: 'AI insights', icon: Sparkles, group: 'workspace' },
   { href: '/settings', label: 'Settings', icon: Settings, group: 'admin' },

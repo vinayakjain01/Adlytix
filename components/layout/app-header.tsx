@@ -4,6 +4,8 @@ import { Download } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/context';
 import { findNavItem, groupLabel } from '@/lib/nav';
+import { useIntegrationRefresh } from '@/hooks/use-integration-refresh';
+import { DateRangeSelector } from '@/components/integrations/date-range-selector';
 import { MonthPicker } from './month-picker';
 import { CurrencyPicker } from './currency-picker';
 import { cn } from '@/lib/utils';
@@ -18,7 +20,18 @@ export interface AppHeaderProps {
 
 export function AppHeader({ breadcrumbs, onExport, exportLabel = 'Export' }: AppHeaderProps) {
   const pathname = usePathname();
-  const { mergedData, aggregatedProducts } = useApp();
+  const { mergedData, aggregatedProducts, integrationRangeDays, setIntegrationRangeDays } = useApp();
+  const { refresh: refreshIntegrationData, refreshing } = useIntegrationRefresh();
+
+  // Global — Section 12: one control drives every Integration-mode page.
+  // Never navigates (the operator could be on any screen when they change
+  // it) and never re-fetches Shopify/Meta, only the stored data for the new
+  // range. A workspace with no integration connected simply gets a no-op
+  // (see useIntegrationRefresh's "no synced Shopify orders" handling).
+  const handleRangeChange = (days: number) => {
+    setIntegrationRangeDays(days);
+    void refreshIntegrationData(days);
+  };
 
   const item = findNavItem(pathname);
   const crumbs = breadcrumbs ?? [
@@ -74,6 +87,7 @@ export function AppHeader({ breadcrumbs, onExport, exportLabel = 'Export' }: App
 
       {/* Global controls */}
       <div className="flex flex-shrink-0 items-center gap-2">
+        <DateRangeSelector activeDays={integrationRangeDays} loading={refreshing} onSelect={handleRangeChange} />
         <MonthPicker />
         <CurrencyPicker />
 

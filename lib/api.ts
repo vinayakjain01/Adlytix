@@ -103,6 +103,171 @@ export function getIntegrationAnalysis(opts: IntegrationAnalysisOptions) {
   return apiJson<AnalyseResponse>(`/api/v1/analytics/products?${params.toString()}`);
 }
 
+// ── Campaign / Ad Audit + Product × Ad Matrix ──────────────────────────
+// Figures here are Meta's own native-currency numbers (like getUnifiedOverview)
+// — not run through the CSV-merge currency system, and not converted.
+export interface EntityMetrics {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  conversions: number;
+  conversionValue: number | null;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  frequency: number | null;
+  platformRoas: number | null;
+}
+
+export interface ProductMixEntry {
+  productId: string | null;
+  title: string;
+  spend: number;
+  conversionValue: number | null;
+  platformRoas: number | null;
+}
+
+export interface CampaignAuditRow extends EntityMetrics {
+  campaignId: string;
+  name: string;
+  productAttributedSpend: number;
+  unattributedSpend: number;
+  productMix: ProductMixEntry[];
+  primaryDriver: string | null;
+}
+
+export interface AdTrend {
+  platformRoas: number | null;
+  cpm: number | null;
+  ctr: number | null;
+  frequency: number | null;
+  spend: number | null;
+}
+
+export interface AdAuditRow extends EntityMetrics {
+  adId: string;
+  name: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  adSetId: string | null;
+  adSetName: string | null;
+  trend: AdTrend | null;
+  productMix: ProductMixEntry[];
+  score: number;
+  scoreReasons: string[];
+}
+
+export interface ProductAdMatrixCell {
+  productId: string;
+  adId: string;
+  spend: number;
+  conversionValue: number | null;
+  platformRoas: number | null;
+}
+
+export interface ProductAdMatrix {
+  since: string;
+  until: string;
+  products: { id: string; title: string }[];
+  ads: { id: string; name: string }[];
+  cells: ProductAdMatrixCell[];
+  productLevelConversionsAvailable: boolean;
+}
+
+function rangeQuery(range?: { since: string; until: string }): string {
+  return range ? `?${new URLSearchParams(range).toString()}` : "";
+}
+
+export function getCampaignAudit(range?: { since: string; until: string }) {
+  return apiJson<{ since: string; until: string; campaigns: CampaignAuditRow[]; productLevelConversionsAvailable: boolean }>(
+    `/api/v1/analytics/campaigns${rangeQuery(range)}`,
+  );
+}
+
+export function getAdAudit(range?: { since: string; until: string }) {
+  return apiJson<{ since: string; until: string; ads: AdAuditRow[]; productLevelConversionsAvailable: boolean }>(
+    `/api/v1/analytics/ads${rangeQuery(range)}`,
+  );
+}
+
+export function getProductAdMatrix(range?: { since: string; until: string }) {
+  return apiJson<ProductAdMatrix>(`/api/v1/analytics/product-ad-matrix${rangeQuery(range)}`);
+}
+
+export type OpportunityTag =
+  | 'winner' | 'emerging' | 'declining' | 'inefficient'
+  | 'high-revenue-low-efficiency' | 'low-spend-high-efficiency' | 'no-ad-spend' | 'steady';
+
+export interface ProductIntelligenceRow {
+  productId: string;
+  title: string;
+  revenue: number;
+  units: number;
+  orders: number;
+  metaSpend: number;
+  roi: number | null;
+  revenueTrendPct: number | null;
+  spendTrendPct: number | null;
+  campaignCount: number;
+  adCount: number;
+  bestCampaignId: string | null;
+  bestCampaignRoas: number | null;
+  bestAdId: string | null;
+  bestAdRoas: number | null;
+  opportunityScore: number;
+  opportunityTag: OpportunityTag;
+  opportunityReasons: string[];
+}
+
+export interface ProductIntelligenceResult {
+  since: string;
+  until: string;
+  products: ProductIntelligenceRow[];
+  accountAverages: { roi: number; spend: number; revenue: number };
+  productLevelConversionsAvailable: boolean;
+  bestEntityRankedBy: 'platformRoas' | 'spend';
+}
+
+/** Integration-mode-only — see backend/reporting/product_intelligence.py. */
+export function getProductIntelligence(range?: { since: string; until: string }) {
+  return apiJson<ProductIntelligenceResult>(`/api/v1/analytics/product-intelligence${rangeQuery(range)}`);
+}
+
+export type OpportunitySeverity = 'high' | 'medium' | 'low';
+export type OpportunityEntityType = 'campaign' | 'ad' | 'product';
+
+export type OpportunityCategory = 'scale' | 'product-opportunity' | 'performance-drop' | 'creative-fatigue';
+export type OpportunityConfidence = 'high' | 'medium' | 'low';
+
+export interface Opportunity {
+  category: OpportunityCategory;
+  severity: OpportunitySeverity;
+  entityType: OpportunityEntityType;
+  entityId: string;
+  entityName: string;
+  title: string;
+  metric: string;
+  metricValue: number | null;
+  comparisonMetric: number | null;
+  reason: string;
+  recommendedAction: string;
+  evidence: Record<string, number | string | null>;
+  confidence: OpportunityConfidence;
+}
+
+export interface OpportunityCenterResult {
+  since: string;
+  until: string;
+  opportunities: Opportunity[];
+  counts: Partial<Record<OpportunityCategory, number>>;
+}
+
+/** Every item here is a real signal already computed by Product Intelligence / Campaign & Ad Audit — see backend/reporting/opportunity_center.py. */
+export function getOpportunityCenter(range?: { since: string; until: string }) {
+  return apiJson<OpportunityCenterResult>(`/api/v1/analytics/opportunity-center${rangeQuery(range)}`);
+}
+
 export type SyncJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface SyncJobInfo {

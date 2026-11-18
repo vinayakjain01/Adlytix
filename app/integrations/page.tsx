@@ -12,10 +12,12 @@ import { DateRangeSelector } from '@/components/integrations/date-range-selector
 import { ModeToggle } from '@/components/integrations/mode-toggle';
 import { SyncProgress } from '@/components/integrations/sync-progress';
 import { useAuth } from '@/lib/auth-context';
-import { useApp, type IncomingRow } from '@/lib/context';
+import { useApp } from '@/lib/context';
 import { CURRENCIES, type CurrencyCode } from '@/lib/currency';
+import { daysToRange } from '@/lib/date-range';
+import { useIntegrationRefresh } from '@/hooks/use-integration-refresh';
 import {
-  disconnectIntegration, getAnalyticsSources, getIntegrationAnalysis, getUnifiedOverview,
+  disconnectIntegration, getAnalyticsSources, getUnifiedOverview,
   listIntegrations, listMetaAccounts, metaConnectHref, selectMetaAccount, shopifyConnectHref,
   triggerMetaSync, triggerShopifySync,
   type IntegrationStatusInfo, type MetaAdAccount, type SyncJobInfo, type UnifiedOverview,
@@ -49,7 +51,7 @@ export default function IntegrationsPage() {
 
   const {
     baseCurrency, setBaseCurrency, sourceCurrencies, setSourceCurrency,
-    setMergeCurrency, setMergedResult, mergedData, mergedSummary, mergeCurrency,
+    mergedData, mergedSummary, mergeCurrency, setIntegrationRangeDays,
     warnings, aggregatedProducts, allMonths,
   } = useApp();
 
@@ -81,11 +83,7 @@ export default function IntegrationsPage() {
   const loadOverview = useCallback(async (days: number = 30) => {
     setOverviewLoading(true);
     try {
-      const until = new Date();
-      const since = new Date(until);
-      since.setDate(since.getDate() - (days - 1));
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      setOverview(await getUnifiedOverview({ since: fmt(since), until: fmt(until) }));
+      setOverview(await getUnifiedOverview(daysToRange(days)));
     } catch {
       setOverview(null);
     } finally {
@@ -116,65 +114,29 @@ export default function IntegrationsPage() {
     })();
   }, [setSourceCurrency]);
 
+  const { refresh: refreshIntegrationData } = useIntegrationRefresh();
+
   /**
-   * Integration-mode equivalent of useMerge()'s run(): same endpoint family,
-   * same success handling (lifted from hooks/use-merge.ts so the numbers
-   * behave identically), same setMergedResult call — the only difference is
-   * where the rows come from. Always reads what's already synced to
-   * Postgres; never re-fetches Shopify or Meta's own APIs.
+   * Runs the shared Integration-mode refresh (hooks/use-integration-refresh.ts
+   * — the same fetch+setMergedResult logic the global header's date-range
+   * control uses) and, on top of that shared behavior, does what only this
+   * page's "Analyze now" / auto-post-sync flow needs: a toast and a redirect
+   * to Overview.
    */
   const runAnalysis = useCallback(async (days: number) => {
     setActiveRangeDays(days);
+    setIntegrationRangeDays(days);
     setAnalyzing(true);
     try {
-      const until = new Date();
-      const since = new Date(until);
-      since.setDate(since.getDate() - (days - 1));
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
-
-      const result = await getIntegrationAnalysis({
-        since: fmt(since), until: fmt(until),
-        base: baseCurrency, meta: sourceCurrencies.meta, shopify: sourceCurrencies.shopify,
-      });
-
-      setMergeCurrency(result.currency ?? null);
-      const products = result.products ?? [];
-      const summary = result.summary ?? {};
-      const warns = result.warnings ?? [];
-
-      const calcTotalSpend = products.reduce((s: number, p: IncomingRow) => s + Number(p['Total Spend'] ?? 0), 0);
-      const calcTotalRev = products.reduce((s: number, p: IncomingRow) => s + Number(p['Shopify Revenue'] ?? 0), 0);
-      const calcMetaSpend = products.reduce((s: number, p: IncomingRow) => s + Number(p['Meta Spend'] ?? 0), 0);
-
-      setMergedResult(
-        products,
-        {
-          products: summary.products ?? products.length,
-          total_spend: summary.total_spend || calcTotalSpend,
-          total_rev: summary.total_rev || calcTotalRev,
-          roi: summary.roi || (calcTotalSpend > 0 ? calcTotalRev / calcTotalSpend : 0),
-          meta_spend: summary.meta_spend || calcMetaSpend,
-          google_cost: 0,
-          lpv: summary.lpv ?? 0,
-        },
-        result.hasMonth ?? false,
-        false,
-        warns,
-      );
-
-      toast.success(`Analysis ready — ${products.length} products, ${days === 30 ? 'last 30 days' : days === 90 ? 'last 90 days' : 'last 6 months'}.`);
-      router.push('/overview');
-    } catch (err) {
-      // No synced Shopify orders in range yet — a quiet no-op, not an error
-      // toast, since this fires automatically right after a first sync.
-      const message = err instanceof Error ? err.message : '';
-      if (!message.toLowerCase().includes('no synced shopify orders')) {
-        toast.error(message || 'Could not run analysis.');
+      const ok = await refreshIntegrationData(days);
+      if (ok) {
+        toast.success(`Analysis ready — last ${days === 180 ? '6 months' : `${days} days`}.`);
+        router.push('/overview');
       }
     } finally {
       setAnalyzing(false);
     }
-  }, [baseCurrency, sourceCurrencies, setMergeCurrency, setMergedResult, router]);
+  }, [refreshIntegrationData, setIntegrationRangeDays, router]);
 
   // Handles the redirect back from a provider's OAuth callback
   // (?integration=shopify&status=connected, etc.) and then scrubs the query

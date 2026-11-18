@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { ArrowRight, Upload } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, Sparkles, Upload } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { StatStrip } from '@/components/ui/stat-card';
 import { MetricsBar, type MetricItem } from '@/components/products/metrics-bar';
@@ -12,6 +12,9 @@ import { ProductTable } from '@/components/products/product-table';
 import { TopPerformers } from '@/components/products/top-performers';
 import { ExportBand } from '@/components/products/export-band';
 import { useApp } from '@/lib/context';
+import { getProductIntelligence, type ProductIntelligenceRow } from '@/lib/api';
+import { daysToRange } from '@/lib/date-range';
+import { cn } from '@/lib/utils';
 import { DEFAULT_COLUMNS, type ColumnKey } from '@/lib/product-columns';
 import {
   applyFilters, computeAverages, computeKpis, computeTotals, searchProducts,
@@ -28,7 +31,7 @@ import { useMoney } from '@/hooks/use-money';
 export default function ProductAnalysisPage() {
   // aggregatedProducts is the single source of truth: month-filtered and
   // grouped by product ID by lib/context.tsx.
-  const { mergedData, aggregatedProducts, allMonths, selectedMonths } = useApp();
+  const { mergedData, aggregatedProducts, allMonths, selectedMonths, integrationRangeDays } = useApp();
   // A real dependency for the memos below; inr() alone would go stale.
   const money = useMoney();
 
@@ -37,6 +40,29 @@ export default function ProductAnalysisPage() {
   const [search, setSearch] = useState('');
   const [filename, setFilename] = useState(defaultProductExportName);
   const tableRef = useRef<HTMLDivElement>(null);
+
+  // Integration-mode-only enrichment (Section 16) — a self-contained fetch
+  // that simply renders nothing for a Data Source Upload-only workspace
+  // (the endpoint returns an empty product list when nothing is synced),
+  // so the existing upload-driven table above is never affected by this.
+  // Follows the global date-range control in the header (Section 12).
+  const [intel, setIntel] = useState<ProductIntelligenceRow[] | null>(null);
+  const [intelExpanded, setIntelExpanded] = useState<string | null>(null);
+  const [showIntel, setShowIntel] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getProductIntelligence(daysToRange(integrationRangeDays));
+        if (cancelled) return;
+        setIntel(result.products.length > 0 ? result.products : null);
+      } catch {
+        if (!cancelled) setIntel(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [integrationRangeDays]);
 
   // search → metric filters, exactly the order the original applied them.
   const searched = useMemo(() => searchProducts(aggregatedProducts, search), [aggregatedProducts, search]);
@@ -200,6 +226,31 @@ export default function ProductAnalysisPage() {
 
           <TopPerformers tableRef={tableRef} />
 
+          {intel && (
+            <button
+              type="button"
+              onClick={() => setShowIntel((v) => !v)}
+              className="flex w-full items-center justify-between gap-3 rounded-card border border-line bg-panel px-6 py-3.5 text-left transition-colors hover:border-line-hover"
+            >
+              <span className="flex items-center gap-2.5 text-[13.5px] font-medium text-ink">
+                <Sparkles className="h-4 w-4 text-brand" />
+                Product intelligence
+                <span className="rounded-chip border border-line-subtle bg-panel-sunken px-2 py-0.5 text-[11px] font-normal text-ink-faint">
+                  {intel.length} products
+                </span>
+              </span>
+              {showIntel ? <ChevronDown className="h-4 w-4 text-ink-faint" /> : <ChevronRight className="h-4 w-4 text-ink-faint" />}
+            </button>
+          )}
+
+          {intel && showIntel && (
+            <ProductIntelligencePanel
+              rows={intel}
+              expanded={intelExpanded}
+              onToggle={(id) => setIntelExpanded(intelExpanded === id ? null : id)}
+            />
+          )}
+
           <ColumnsAndFilters
             visibleColumns={visibleColumns}
             onVisibleColumnsChange={handleColumnsChange}
@@ -241,5 +292,123 @@ export default function ProductAnalysisPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+const TAG_LABEL: Record<string, { label: string; className: string }> = {
+  winner: { label: 'Winner', className: 'border-ok/30 bg-ok-tint text-ok-soft' },
+  emerging: { label: 'Emerging', className: 'border-brand/30 bg-brand-tint text-brand-100' },
+  declining: { label: 'Declining', className: 'border-warn/30 bg-warn-tint text-warn' },
+  inefficient: { label: 'Inefficient', className: 'border-bad-line bg-bad-tint text-bad-soft' },
+  'high-revenue-low-efficiency': { label: 'High revenue, low efficiency', className: 'border-warn/30 bg-warn-tint text-warn' },
+  'low-spend-high-efficiency': { label: 'Low spend, high efficiency', className: 'border-ok/30 bg-ok-tint text-ok-soft' },
+  'no-ad-spend': { label: 'No ad spend', className: 'border-line-subtle bg-panel-sunken text-ink-faint' },
+  steady: { label: 'Steady', className: 'border-line-subtle bg-panel-sunken text-ink-tertiary' },
+};
+
+function fmtRoi(n: number | null): string {
+  return n == null ? '—' : `${n.toFixed(1)}x`;
+}
+
+function fmtTrend(n: number | null): string {
+  if (n == null) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(0)}%`;
+}
+
+function ProductIntelligencePanel({
+  rows, expanded, onToggle,
+}: { rows: ProductIntelligenceRow[]; expanded: string | null; onToggle: (id: string) => void }) {
+  const sorted = useMemo(() => [...rows].sort((a, b) => b.opportunityScore - a.opportunityScore), [rows]);
+
+  return (
+    <section className="rounded-card border border-line bg-panel px-6 py-5">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-control bg-brand-tint text-brand">
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink">Product intelligence</h2>
+          <p className="text-[12px] text-ink-faint">
+            From your connected Shopify + Meta data — campaign/ad counts, best performers, trend and
+            an explainable opportunity score.
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-panel border border-line-subtle">
+        <table className="w-full min-w-[820px] text-[12.5px]">
+          <thead>
+            <tr className="border-b border-line-subtle text-left text-[11px] uppercase tracking-[0.06em] text-ink-faint">
+              <th className="px-4 py-2.5 font-medium">Product</th>
+              <th className="px-3 py-2.5 text-right font-medium">Revenue</th>
+              <th className="px-3 py-2.5 text-right font-medium">Meta spend</th>
+              <th className="px-3 py-2.5 text-right font-medium">ROI</th>
+              <th className="px-3 py-2.5 text-right font-medium">Trend</th>
+              <th className="px-3 py-2.5 text-right font-medium">Campaigns</th>
+              <th className="px-3 py-2.5 text-right font-medium">Ads</th>
+              <th className="px-3 py-2.5 text-center font-medium">Opportunity</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((p) => {
+              const tag = TAG_LABEL[p.opportunityTag] ?? TAG_LABEL.steady;
+              return (
+                <Fragment key={p.productId}>
+                  <tr
+                    onClick={() => onToggle(p.productId)}
+                    className="cursor-pointer border-b border-line-subtle transition-colors hover:bg-panel-raised"
+                  >
+                    <td className="max-w-[240px] truncate px-4 py-2.5 font-medium text-ink" title={p.title}>{p.title}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-ink-body">{p.revenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-ink-body">{p.metaSpend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-ink-body">{fmtRoi(p.roi)}</td>
+                    <td className={cn('px-3 py-2.5 text-right font-mono',
+                      p.revenueTrendPct == null ? 'text-ink-faint' : p.revenueTrendPct >= 0 ? 'text-ok' : 'text-bad')}>
+                      {fmtTrend(p.revenueTrendPct)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-ink-body">{p.campaignCount}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-ink-body">{p.adCount}</td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className={cn('rounded-chip border px-2 py-0.5 text-[11px] font-medium', tag.className)}>
+                        {tag.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-ink-faint">
+                      {expanded === p.productId ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </td>
+                  </tr>
+                  {expanded === p.productId && (
+                    <tr className="border-b border-line-subtle bg-panel-sunken">
+                      <td colSpan={9} className="px-4 py-3.5">
+                        <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-ink-faint">
+                          SCORE {p.opportunityScore}/100
+                        </p>
+                        {p.opportunityReasons.length === 0 ? (
+                          <p className="text-[12.5px] text-ink-faint">No strong signal either way yet.</p>
+                        ) : (
+                          <ul className="mb-2 space-y-1">
+                            {p.opportunityReasons.map((r, i) => (
+                              <li key={i} className="flex gap-2 text-[12.5px] text-ink-body">
+                                <span className="text-ink-faint">·</span>{r}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="text-[11.5px] text-ink-faint">
+                          {p.orders} orders · {p.units} units
+                          {p.bestCampaignId && <> · best campaign ROAS {fmtRoi(p.bestCampaignRoas)}</>}
+                          {p.bestAdId && <> · best ad ROAS {fmtRoi(p.bestAdRoas)}</>}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

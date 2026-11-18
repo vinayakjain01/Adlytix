@@ -220,6 +220,10 @@ interface AppState {
   toggleMonth: (m: string) => void;
   selectAllMonths: () => void;
 
+  // ── Integration-mode global date range (Section 12) ───────────────────
+  integrationRangeDays: number;
+  setIntegrationRangeDays: (days: number) => void;
+
   // ── Computed: month-filtered + aggregated by product ID ─────────────
   // This is the SINGLE source of truth for all display components.
   aggregatedProducts: NormProduct[];
@@ -305,6 +309,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * selection below falls back to "all months" during render.
    */
   const [monthChoice, setMonthChoice] = useState<MonthChoice | null>(null);
+
+  // ── Integration-mode global date range (Section 12) ──────────────────
+  // Separate from the month-selector above, which filters already-loaded
+  // CSV rows client-side — this drives how much history Integration-mode
+  // pages (Overview's live data, Product intelligence, Campaign/Ad audit,
+  // Product × Ad matrix) query from the database. Changing it never
+  // refetches Shopify/Meta, only the stored data for the new range.
+  const [integrationRangeDays, setIntegrationRangeDays] = useState(30);
 
   // ── Currency ─────────────────────────────────────────────────────────
   // Both selections start at "INR" so the first client render matches the
@@ -531,6 +543,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mergedData, mergedSummary, hasMonth, hasGoogle, warnings,
       setMergedResult, clearMergedData,
       allMonths, selectedMonths, toggleMonth, selectAllMonths,
+      integrationRangeDays, setIntegrationRangeDays,
       aggregatedProducts, normalizedProducts,
       quadrantData, setQuadrantData, clearQuadrantData,
       currency, setCurrency,

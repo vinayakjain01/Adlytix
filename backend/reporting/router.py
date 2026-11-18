@@ -14,7 +14,7 @@ from auth import require_client_scope
 from currency import DEFAULT_BASE, RateUnavailable, normalise_sources
 from db import get_db
 from models import User
-from reporting import merge_adapter, service
+from reporting import campaign_ad_analytics, merge_adapter, opportunity_center, product_intelligence, service
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 
@@ -160,3 +160,89 @@ def product_analysis(
             "meta_spend": kpis["totalMetaSpend"],
         },
     }
+
+
+@router.get("/product-intelligence")
+def product_intelligence_view(
+    since: date | None = None, until: date | None = None,
+    user: User = Depends(require_client_scope), db: Session = Depends(get_db),
+) -> dict:
+    """
+    Integration-mode-only upgrade to Product Analysis (Section 16): trend,
+    campaign/ad counts, best performers, and an explainable Product
+    Opportunity Score. Data Source Upload's Product Analysis has no
+    campaign/ad entities to count, so it doesn't call this — see
+    product_intelligence.py's module docstring.
+    """
+    if since and until and since > until:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="`since` must not be after `until`.")
+    since_d, until_d = merge_adapter.default_range(since, until)
+    result = product_intelligence.build_product_intelligence(db, user.client_id, since_d, until_d)
+    return {"since": since_d.isoformat(), "until": until_d.isoformat(), **result}
+
+
+@router.get("/opportunity-center")
+def opportunity_center_view(
+    since: date | None = None, until: date | None = None,
+    user: User = Depends(require_client_scope), db: Session = Depends(get_db),
+) -> dict:
+    """
+    Every opportunity here is a real signal already computed by Product
+    Intelligence / Campaign & Ad Audit — see opportunity_center.py's module
+    docstring for which categories are covered and why the ones without
+    real backing data are omitted rather than shown empty.
+    """
+    if since and until and since > until:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="`since` must not be after `until`.")
+    since_d, until_d = merge_adapter.default_range(since, until)
+    result = opportunity_center.build_opportunity_center(db, user.client_id, since_d, until_d)
+    return {"since": since_d.isoformat(), "until": until_d.isoformat(), **result}
+
+
+@router.get("/campaigns")
+def campaign_audit(
+    since: date | None = None, until: date | None = None,
+    user: User = Depends(require_client_scope), db: Session = Depends(get_db),
+) -> dict:
+    """
+    Per-campaign spend/CTR/CPM/platform-ROAS plus which products actually
+    drove that number (real Meta-attributed spend/value per product, never
+    Shopify revenue split by campaign — Shopify has no per-campaign
+    attribution to split). Defaults to the last 30 days; reads only what's
+    already synced.
+    """
+    if since and until and since > until:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="`since` must not be after `until`.")
+    since_d, until_d = merge_adapter.default_range(since, until)
+    result = campaign_ad_analytics.build_campaign_audit(db, user.client_id, since_d, until_d)
+    return {"since": since_d.isoformat(), "until": until_d.isoformat(), **result}
+
+
+@router.get("/ads")
+def ad_audit(
+    since: date | None = None, until: date | None = None,
+    user: User = Depends(require_client_scope), db: Session = Depends(get_db),
+) -> dict:
+    """
+    Per-ad metrics, trend vs the prior comparable period, product mix, and an
+    explainable 0-100 score built only from metrics already computed here —
+    see campaign_ad_analytics.build_ad_audit's docstring.
+    """
+    if since and until and since > until:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="`since` must not be after `until`.")
+    since_d, until_d = merge_adapter.default_range(since, until)
+    result = campaign_ad_analytics.build_ad_audit(db, user.client_id, since_d, until_d)
+    return {"since": since_d.isoformat(), "until": until_d.isoformat(), **result}
+
+
+@router.get("/product-ad-matrix")
+def product_ad_matrix(
+    since: date | None = None, until: date | None = None,
+    user: User = Depends(require_client_scope), db: Session = Depends(get_db),
+) -> dict:
+    """Which ads are actually selling which products — real per-(product, ad) Meta-attributed spend/value."""
+    if since and until and since > until:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="`since` must not be after `until`.")
+    since_d, until_d = merge_adapter.default_range(since, until)
+    matrix = campaign_ad_analytics.build_product_ad_matrix(db, user.client_id, since_d, until_d)
+    return {"since": since_d.isoformat(), "until": until_d.isoformat(), **matrix}

@@ -76,11 +76,11 @@ export default function OverviewPage() {
           {hasData && (
             <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5">
               <Link
-                href="/sources"
+                href="/integrations"
                 className="flex h-[38px] items-center gap-2 rounded-control border border-line bg-field px-4 text-[13px] text-ink-body transition-colors hover:border-line-hover hover:text-ink"
               >
-                <Upload className="h-3.5 w-3.5" />
-                Upload new data
+                <Plug className="h-3.5 w-3.5" />
+                Integration
               </Link>
 
               {/* Runs the same analysis the AI insights screen shows — the
