@@ -11,7 +11,7 @@ import { ColumnsAndFilters } from '@/components/products/columns-and-filters';
 import { ProductTable } from '@/components/products/product-table';
 import { TopPerformers } from '@/components/products/top-performers';
 import { ExportBand } from '@/components/products/export-band';
-import { useApp } from '@/lib/context';
+import { RunDetailsPanel } from '@/components/products/run-details-panel';import { useApp } from '@/lib/context';
 import { getProductIntelligence, type ProductIntelligenceRow } from '@/lib/api';
 import { daysToRange } from '@/lib/date-range';
 import { cn } from '@/lib/utils';
@@ -211,6 +211,8 @@ export default function ProductAnalysisPage() {
     <AppShell
       onExport={handleDownload}
       exportLabel={`Export ${num(finalProducts.length)} rows`}
+      rightPanelTitle="Run details"
+      rightPanel={<RunDetailsPanel />}
     >
       <div className="animate-fade-up">
         <header className="mb-7">
