@@ -34,19 +34,31 @@ export function shopifyConnectHref(shop: string): string {
 }
 
 /**
+ * Asks the API to work through queued sync jobs now. A deployment without an
+ * always-on worker (Vercel) relies on this; with a worker running it is
+ * harmless, because jobs are claimed one at a time. Fire-and-forget: progress
+ * is reported by polling the jobs, so a failure here is not surfaced twice.
+ */
+function kickSyncProcessing(): void {
+  void apiFetch("/api/v1/sync/process", { method: "POST" }).catch(() => undefined);
+}
+
+/**
  * Queues products_sync + orders_sync for the caller's connected Shopify
- * store. Returns immediately — the sync itself runs in the background
- * worker (sync/worker.py), not this request.
+ * store. Returns as soon as the jobs are queued; they are then processed by
+ * the background worker (sync/worker.py) or by the kick below.
  */
 export function triggerShopifySync() {
   return apiFetch("/api/v1/shopify/sync", { method: "POST" })
-    .then((r) => r.json() as Promise<{ jobIds: string[] }>);
+    .then((r) => r.json() as Promise<{ jobIds: string[] }>)
+    .then((queued) => { kickSyncProcessing(); return queued; });
 }
 
 /** Queues campaigns_sync + insights_sync for the caller's connected Meta ad account. */
 export function triggerMetaSync() {
   return apiFetch("/api/v1/meta/sync", { method: "POST" })
-    .then((r) => r.json() as Promise<{ jobIds: string[] }>);
+    .then((r) => r.json() as Promise<{ jobIds: string[] }>)
+    .then((queued) => { kickSyncProcessing(); return queued; });
 }
 
 // ── Unified analytics (synced data only — see reporting/service.py for why

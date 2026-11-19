@@ -14,15 +14,30 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": { "type": "service", "service": "backend" }
+      "destination": {
+        "type": "service",
+        "service": "backend"
+      }
     },
     {
       "source": "/health",
-      "destination": { "type": "service", "service": "backend" }
+      "destination": {
+        "type": "service",
+        "service": "backend"
+      }
     },
     {
       "source": "/(.*)",
-      "destination": { "type": "service", "service": "frontend" }
+      "destination": {
+        "type": "service",
+        "service": "frontend"
+      }
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/sync/cron",
+      "schedule": "0 2 * * *"
     }
   ]
 }
